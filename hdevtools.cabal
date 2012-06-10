@@ -20,8 +20,8 @@ executable hdevtools
   build-depends:       base,
                        cmdargs,
                        directory,
-                       network,
                        ghc,
                        ghc-paths,
+                       network,
                        time,
                        unix
