@@ -4,10 +4,15 @@ module Client
     , serverCommand
     ) where
 
+import Control.Exception (tryJust)
+import Control.Monad (guard)
 import Network (PortID(UnixSocket), connectTo)
 import System.Exit (exitFailure, exitWith)
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn, stderr)
+import System.IO.Error (isDoesNotExistError)
 
+import Daemonize (daemonize)
+import Server (createListenSocket, startServer)
 import Types (ClientDirective(..), Command(..), ServerDirective(..))
 import Util (readMaybe)
 
@@ -31,10 +36,16 @@ stopServer sock = do
 
 serverCommand :: FilePath -> Command -> [String] -> IO ()
 serverCommand sock cmd ghcOpts = do
-    h <- connect sock
-    hPutStrLn h $ show (SrvCommand cmd ghcOpts)
-    hFlush h
-    startClientReadLoop h
+    r <- tryJust (guard . isDoesNotExistError) (connect sock)
+    case r of
+        Right h -> do
+            hPutStrLn h $ show (SrvCommand cmd ghcOpts)
+            hFlush h
+            startClientReadLoop h
+        Left _ -> do
+            s <- createListenSocket sock
+            daemonize False $ startServer sock (Just s)
+            serverCommand sock cmd ghcOpts
 
 startClientReadLoop :: Handle -> IO ()
 startClientReadLoop h = do

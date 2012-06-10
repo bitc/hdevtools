@@ -1,6 +1,6 @@
 module Server where
 
-import Control.Exception (bracket, tryJust)
+import Control.Exception (bracket, finally, tryJust)
 import Control.Monad (guard)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Network (PortID(UnixSocket), Socket, accept, listenOn, sClose)
@@ -13,20 +13,31 @@ import CommandLoop (startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
 import Util (readMaybe)
 
-startServer :: FilePath -> IO ()
-startServer socketPath = do
-    let removeSocketFile :: IO ()
-        removeSocketFile = do
-            -- Ignore possible error if socket file does not exist
-            _ <- tryJust (guard . isDoesNotExistError) $ removeFile socketPath
-            return ()
+createListenSocket :: FilePath -> IO Socket
+createListenSocket socketPath =
+    listenOn (UnixSocket socketPath)
 
-    bracket
-        (listenOn (UnixSocket socketPath))
-        (\sock -> sClose sock >> removeSocketFile)
-        $ \sock -> do
-            currentClient <- newIORef Nothing
-            startCommandLoop (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
+startServer :: FilePath -> Maybe Socket -> IO ()
+startServer socketPath mbSock = do
+    case mbSock of
+        Nothing -> bracket (createListenSocket socketPath) cleanup go
+        Just sock -> (go sock) `finally` (cleanup sock)
+    where
+    cleanup :: Socket -> IO ()
+    cleanup sock = do
+        sClose sock
+        removeSocketFile
+
+    go :: Socket -> IO ()
+    go sock = do
+        currentClient <- newIORef Nothing
+        startCommandLoop (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
+
+    removeSocketFile :: IO ()
+    removeSocketFile = do
+        -- Ignore possible error if socket file does not exist
+        _ <- tryJust (guard . isDoesNotExistError) $ removeFile socketPath
+        return ()
 
 clientSend :: IORef (Maybe Handle) -> ClientDirective -> IO ()
 clientSend currentClient clientDirective = do

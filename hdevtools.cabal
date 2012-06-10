@@ -23,4 +23,5 @@ executable hdevtools
                        network,
                        ghc,
                        ghc-paths,
-                       time
+                       time,
+                       unix
