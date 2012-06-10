@@ -1,4 +1,6 @@
-module CommandLoop where
+module CommandLoop
+    ( startCommandLoop
+    ) where
 
 import ErrUtils (Message, mkLocMessage)
 import GHC (Ghc, GhcException, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), gcatch, getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets, showGhcException)
