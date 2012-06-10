@@ -2,7 +2,7 @@ module CommandLoop where
 
 import Data.Time (getCurrentTime)
 import ErrUtils (Message, mkLocMessage)
-import GHC (Ghc, HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), getSessionDynFlags, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets)
+import GHC (Ghc, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets)
 import GHC.Paths (libdir)
 import MonadUtils (MonadIO, liftIO)
 import Outputable (PprStyle, renderWithStyle)
@@ -47,6 +47,7 @@ configSession clientSend ghcOpts = do
     initialDynFlags <- getSessionDynFlags
     let updatedDynFlags = initialDynFlags
             { log_action = logAction clientSend
+            , ghcLink = NoLink
             , hscTarget = HscInterpreted
             }
     info "Parsing ghcOpts DynFlags"
