@@ -2,7 +2,7 @@ module CommandLoop where
 
 import Data.Time (getCurrentTime)
 import ErrUtils (Message, mkLocMessage)
-import GHC (Ghc, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets)
+import GHC (Ghc, GhcException, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), gcatch, getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets, showGhcException)
 import GHC.Paths (libdir)
 import MonadUtils (MonadIO, liftIO)
 import Outputable (PprStyle, renderWithStyle)
@@ -16,30 +16,44 @@ type ClientSend = ClientDirective -> IO ()
 
 startCommandLoop :: ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
 startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
-    let processNextCommand :: Ghc (Maybe CommandObj)
-        processNextCommand = do
-            mbNextCmd <- liftIO getNextCommand
-            case mbNextCmd of
-                Nothing ->
-                    -- Exit
-                    return Nothing
-                Just (cmd, ghcOpts) ->
-                    if ghcOpts /= initialGhcOpts
-                        then return (Just (cmd, ghcOpts))
-                        else runCommand clientSend cmd >> processNextCommand
-
     continue <- runGhc (Just libdir) $ do
-        configSession clientSend initialGhcOpts
-        case mbInitial of
-            Just initialCmd -> runCommand clientSend initialCmd
-            Nothing -> return ()
-        processNextCommand
+        configOk <- gcatch (configSession clientSend initialGhcOpts >> return True)
+            handleConfigError
+        if configOk
+            then do
+                doMaybe mbInitial $ runCommand clientSend
+                processNextCommand False
+            else processNextCommand True
 
     case continue of
         Nothing ->
             -- Exit
             return ()
         Just (cmd, ghcOpts) -> startCommandLoop clientSend getNextCommand ghcOpts (Just cmd)
+    where
+    processNextCommand :: Bool -> Ghc (Maybe CommandObj)
+    processNextCommand forceReconfig = do
+        mbNextCmd <- liftIO getNextCommand
+        case mbNextCmd of
+            Nothing ->
+                -- Exit
+                return Nothing
+            Just (cmd, ghcOpts) ->
+                if forceReconfig || (ghcOpts /= initialGhcOpts)
+                    then return (Just (cmd, ghcOpts))
+                    else runCommand clientSend cmd >> processNextCommand False
+
+    handleConfigError :: GhcException -> Ghc Bool
+    handleConfigError e = do
+        liftIO $ mapM_ clientSend
+            [ ClientStderr (showGhcException e "")
+            , ClientExit (ExitFailure 1)
+            ]
+        return False
+
+doMaybe :: Monad m => Maybe a -> (a -> m ()) -> m ()
+doMaybe Nothing _ = return ()
+doMaybe (Just x) f = f x
 
 configSession :: ClientSend -> [String] -> Ghc ()
 configSession clientSend ghcOpts = do
