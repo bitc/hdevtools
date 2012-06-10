@@ -1,6 +1,5 @@
 module CommandLoop where
 
-import Data.Time (getCurrentTime)
 import ErrUtils (Message, mkLocMessage)
 import GHC (Ghc, GhcException, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), gcatch, getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets, showGhcException)
 import GHC.Paths (libdir)
@@ -57,27 +56,21 @@ doMaybe (Just x) f = f x
 
 configSession :: ClientSend -> [String] -> Ghc ()
 configSession clientSend ghcOpts = do
-    info "Reading initial DynFlags"
     initialDynFlags <- getSessionDynFlags
     let updatedDynFlags = initialDynFlags
             { log_action = logAction clientSend
             , ghcLink = NoLink
             , hscTarget = HscInterpreted
             }
-    info "Parsing ghcOpts DynFlags"
     (finalDynFlags, _, _) <- parseDynamicFlags updatedDynFlags (map noLoc ghcOpts)
-    info "Setting final DynFlags"
     _ <- setSessionDynFlags finalDynFlags
     return ()
 
 runCommand :: ClientSend -> Command -> Ghc ()
 runCommand clientSend (CmdCheck file) = do
-    info $ "Guessing Target: " ++ file
     let noPhase = Nothing
     target <- guessTarget file noPhase
-    info "Setting target list"
     setTargets [target]
-    info "Loading all targets"
     let handler err = printException err >> return Failed
     flag <- handleSourceError handler (load LoadAllTargets)
     liftIO $ case flag of
@@ -90,9 +83,3 @@ logAction clientSend severity srcspan style msg =
         _ = severity
     in clientSend (ClientStdout out)
     where fullMsg = mkLocMessage srcspan msg
-
-
-info :: MonadIO m => String -> m ()
-info msg = liftIO $ do
-    now <- getCurrentTime
-    putStrLn $ show now ++ " " ++ msg

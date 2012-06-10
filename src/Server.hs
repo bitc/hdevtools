@@ -47,7 +47,6 @@ getNextCommand currentClient sock = do
     (h, _, _) <- accept sock
     writeIORef currentClient (Just h)
     msg <- hGetLine h -- TODO catch exception
-    putStrLn msg
     let serverDirective = readMaybe msg
     case serverDirective of
         Nothing -> do
