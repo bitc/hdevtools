@@ -1,0 +1,26 @@
+name:                hdevtools
+version:             0.1.0.0
+synopsis:            TODO ...
+-- description:         
+license:             MIT
+license-file:        LICENSE
+author:              Bit Connor
+maintainer:          mutantlemon@gmail.com
+-- copyright:           
+category:            Development
+build-type:          Simple
+cabal-version:       >=1.8
+
+executable hdevtools
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  ghc-options:         -Wall
+  cpp-options:         -DCABAL
+  -- other-modules:       
+  build-depends:       base,
+                       cmdargs,
+                       directory,
+                       network,
+                       ghc,
+                       ghc-paths,
+                       time
