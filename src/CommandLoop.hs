@@ -20,7 +20,7 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
             handleConfigError
         if configOk
             then do
-                doMaybe mbInitial $ runCommand clientSend
+                doMaybe mbInitial $ \cmd -> sendErrors (runCommand clientSend cmd)
                 processNextCommand False
             else processNextCommand True
 
@@ -40,7 +40,10 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
             Just (cmd, ghcOpts) ->
                 if forceReconfig || (ghcOpts /= initialGhcOpts)
                     then return (Just (cmd, ghcOpts))
-                    else runCommand clientSend cmd >> processNextCommand False
+                    else sendErrors (runCommand clientSend cmd) >> processNextCommand False
+
+    sendErrors :: Ghc () -> Ghc ()
+    sendErrors action = gcatch action (\x -> handleConfigError x >> return ())
 
     handleConfigError :: GhcException -> Ghc Bool
     handleConfigError e = do
