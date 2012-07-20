@@ -35,6 +35,13 @@ data HDevTools
         , ghcOpts :: [String]
         , file :: String
         }
+    | Type
+        { socket :: Maybe FilePath
+        , ghcOpts :: [String]
+        , file :: String
+        , line :: Int
+        , col :: Int
+        }
     deriving (Show, Data, Typeable)
 
 dummyAdmin :: HDevTools
@@ -53,6 +60,15 @@ dummyCheck = Check
     , file = ""
     }
 
+dummyType :: HDevTools
+dummyType = Type
+    { socket = Nothing
+    , ghcOpts = []
+    , file = ""
+    , line = 0
+    , col = 0
+    }
+
 admin :: Annotate Ann
 admin = record dummyAdmin
     [ socket   := def += typFile += help "socket file to use"
@@ -69,8 +85,17 @@ check = record dummyCheck
     , file     := def += typFile      += argPos 0 += opt ""
     ] += help "Check a haskell source file for errors and warnings"
 
+type_ :: Annotate Ann
+type_ = record dummyType
+    [ socket   := def += typFile += help "socket file to use"
+    , ghcOpts  := def += typ "OPTION" += help "ghc options"
+    , file     := def += typFile      += argPos 0 += opt ""
+    , line     := def += typ "LINE"   += argPos 1
+    , col      := def += typ "COLUMN" += argPos 2
+    ] += help "Get the type of the expression at the specified line and column"
+
 full :: String -> Annotate Ann
-full progName = modes_ [admin += auto, check]
+full progName = modes_ [admin += auto, check, type_]
         += verbosity
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]

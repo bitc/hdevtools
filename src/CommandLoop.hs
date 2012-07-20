@@ -10,6 +10,7 @@ import Outputable (PprStyle, renderWithStyle)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 
 import Types (ClientDirective(..), Command(..))
+import Info (getType)
 
 type CommandObj = (Command, [String])
 
@@ -81,6 +82,27 @@ runCommand clientSend (CmdCheck file) = do
     liftIO $ case flag of
         Succeeded -> clientSend (ClientExit ExitSuccess)
         Failed -> clientSend (ClientExit (ExitFailure 1))
+runCommand clientSend (CmdType file (line, col)) = do
+    result <- getType file (line, col)
+    case result of
+        Left err ->
+            liftIO $ mapM_ clientSend
+                [ ClientStderr err
+                , ClientExit (ExitFailure 1)
+                ]
+        Right types -> liftIO $ do
+            mapM_ (clientSend . ClientStdout . formatType) types
+            clientSend (ClientExit ExitSuccess)
+    where
+    formatType :: ((Int, Int, Int, Int), String) -> String
+    formatType ((startLine, startCol, endLine, endCol), t) =
+        concat
+            [ show startLine , " "
+            , show startCol , " "
+            , show endLine , " "
+            , show endCol , " "
+            , "\"", t, "\""
+            ]
 
 logAction :: ClientSend -> Severity -> SrcSpan -> PprStyle -> Message -> IO ()
 logAction clientSend severity srcspan style msg =

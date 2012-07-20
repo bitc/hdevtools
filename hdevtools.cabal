@@ -22,6 +22,8 @@ executable hdevtools
                        directory,
                        ghc,
                        ghc-paths,
+                       ghc-syb-utils,
+                       syb,
                        network,
                        time,
                        unix
