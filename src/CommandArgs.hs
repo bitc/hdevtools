@@ -118,7 +118,6 @@ type_ = record dummyType
 
 full :: String -> Annotate Ann
 full progName = modes_ [admin += auto, check, info, type_]
-        += verbosity
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]
         += program progName
