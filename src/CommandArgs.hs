@@ -87,7 +87,7 @@ admin :: Annotate Ann
 admin = record dummyAdmin
     [ socket   := def += typFile += help "socket file to use"
     , start_server   := def            += help "start server"
-    , noDaemon := def            += help "do not daemonize (only if --server)"
+    , noDaemon := def            += help "do not daemonize (only if --start-server)"
     , status   := def            += help "show status of server"
     , stop_server := def         += help "shutdown the server"
     ] += help "Interactions with the server"
