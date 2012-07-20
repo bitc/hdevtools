@@ -21,5 +21,6 @@ data ClientDirective
 
 data Command
     = CmdCheck FilePath
+    | CmdInfo FilePath String
     | CmdType FilePath (Int, Int)
     deriving (Read, Show)

@@ -35,6 +35,12 @@ data HDevTools
         , ghcOpts :: [String]
         , file :: String
         }
+    | Info
+        { socket :: Maybe FilePath
+        , ghcOpts :: [String]
+        , file :: String
+        , identifier :: String
+        }
     | Type
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
@@ -58,6 +64,14 @@ dummyCheck = Check
     { socket = Nothing
     , ghcOpts = []
     , file = ""
+    }
+
+dummyInfo :: HDevTools
+dummyInfo = Info
+    { socket = Nothing
+    , ghcOpts = []
+    , file = ""
+    , identifier = ""
     }
 
 dummyType :: HDevTools
@@ -85,6 +99,14 @@ check = record dummyCheck
     , file     := def += typFile      += argPos 0 += opt ""
     ] += help "Check a haskell source file for errors and warnings"
 
+info :: Annotate Ann
+info = record dummyInfo
+    [ socket     := def += typFile += help "socket file to use"
+    , ghcOpts    := def += typ "OPTION" += help "ghc options"
+    , file       := def += typFile      += argPos 0 += opt ""
+    , identifier := def += typ "IDENTIFIER" += argPos 1
+    ] += help "Get info from GHC about the specified identifier"
+
 type_ :: Annotate Ann
 type_ = record dummyType
     [ socket   := def += typFile += help "socket file to use"
@@ -95,7 +117,7 @@ type_ = record dummyType
     ] += help "Get the type of the expression at the specified line and column"
 
 full :: String -> Annotate Ann
-full progName = modes_ [admin += auto, check, type_]
+full progName = modes_ [admin += auto, check, info, type_]
         += verbosity
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]

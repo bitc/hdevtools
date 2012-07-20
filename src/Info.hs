@@ -1,7 +1,11 @@
-module Info where
+module Info
+    ( getIdentifierInfo
+    , getType
+    ) where
 
+import Control.Monad (liftM)
 import Data.Generics (GenericQ, mkQ)
-import Data.List (find, sortBy)
+import Data.List (find, sortBy, intersperse)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Typeable (Typeable)
 import GHC.SYB.Utils (everythingStaged, Stage(TypeChecker))
@@ -9,14 +13,31 @@ import MonadUtils (liftIO)
 import qualified CoreUtils
 import qualified Desugar
 import qualified GHC
+import qualified HscTypes
+import qualified NameSet
 import qualified Outputable
 import qualified PprTyThing
 import qualified Pretty
 import qualified TcHsSyn
 import qualified TcRnTypes
 
+getIdentifierInfo :: FilePath -> String -> GHC.Ghc (Either String String)
+getIdentifierInfo file identifier =
+    withModSummary file $ \m -> do
+        GHC.setContext [GHC.IIModule (GHC.ms_mod m)]
+        GHC.handleSourceError (return . Left . show) $
+            liftM Right (infoThing identifier)
+
 getType :: FilePath -> (Int, Int) -> GHC.Ghc (Either String [((Int, Int, Int, Int), String)])
-getType file (line, col) = do
+getType file (line, col) =
+    withModSummary file $ \m -> do
+        p <- GHC.parseModule m
+        typechecked <- GHC.typecheckModule p
+        types <- processTypeCheckedModule typechecked (line, col)
+        return (Right types)
+
+withModSummary :: String -> (HscTypes.ModSummary -> GHC.Ghc (Either String a)) -> GHC.Ghc (Either String a)
+withModSummary file action = do
     let noPhase = Nothing
     target <- GHC.guessTarget file noPhase
     GHC.setTargets [target]
@@ -29,11 +50,7 @@ getType file (line, col) = do
             modSummary <- getModuleSummary file
             case modSummary of
                 Nothing -> return (Left "Module not found in module graph")
-                Just m -> do
-                    p <- GHC.parseModule m
-                    typechecked <- GHC.typecheckModule p
-                    types <- processTypeCheckedModule typechecked (line, col)
-                    return (Right types)
+                Just m -> action m
 
 getModuleSummary :: FilePath -> GHC.Ghc (Maybe GHC.ModSummary)
 getModuleSummary file = do
@@ -121,3 +138,38 @@ pretty =
     Pretty.showDocWith Pretty.OneLineMode
     . Outputable.withPprStyleDoc (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
     . PprTyThing.pprTypeForUser False
+
+------------------------------------------------------------------------------
+-- The following code was taken from GHC's ghc/InteractiveUI.hs (with some
+-- stylistic changes)
+
+infoThing :: String -> GHC.Ghc String
+infoThing str = do
+    names <- GHC.parseName str
+    mb_stuffs <- mapM GHC.getInfo names
+    let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
+    unqual <- GHC.getPrintUnqual
+    return $ Outputable.showSDocForUser unqual $
+        Outputable.vcat (intersperse (Outputable.text "") $ map (pprInfo False) filtered)
+
+  -- Filter out names whose parent is also there Good
+  -- example is '[]', which is both a type and data
+  -- constructor in the same type
+filterOutChildren :: (a -> HscTypes.TyThing) -> [a] -> [a]
+filterOutChildren get_thing xs
+  = filter (not . has_parent) xs
+  where
+    all_names = NameSet.mkNameSet (map (GHC.getName . get_thing) xs)
+    has_parent x = case HscTypes.tyThingParent_maybe (get_thing x) of
+                     Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
+                     Nothing -> False
+
+pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.Instance]) -> Outputable.SDoc
+pprInfo pefas (thing, fixity, insts) =
+    PprTyThing.pprTyThingInContextLoc pefas thing
+        Outputable.$$ show_fixity fixity
+        Outputable.$$ Outputable.vcat (map GHC.pprInstance insts)
+    where
+    show_fixity fix
+        | fix == GHC.defaultFixity = Outputable.empty
+        | otherwise                = Outputable.ppr fix Outputable.<+> Outputable.ppr (GHC.getName thing)

@@ -23,6 +23,7 @@ main = do
     case args of
         Admin {} -> doAdmin sock args
         Check {} -> doCheck sock args
+        Info {} -> doInfo sock args
         Type {} -> doType sock args
 
 doAdmin :: FilePath -> HDevTools -> IO ()
@@ -39,20 +40,22 @@ doAdmin sock args
         hPutStrLn stderr "You must provide a command. See:"
         hPutStrLn stderr $ progName ++ " --help"
 
-doCheck :: FilePath -> HDevTools -> IO ()
-doCheck sock args
+doFileCommand :: String -> (HDevTools -> Command) -> FilePath -> HDevTools -> IO ()
+doFileCommand cmdName cmd sock args
     | null (file args) = do
         progName <- getProgName
         hPutStrLn stderr "You must provide a haskell source file. See:"
-        hPutStrLn stderr $ progName ++ " check --help"
-    | otherwise = do
-        serverCommand sock (CmdCheck (file args)) (ghcOpts args)
+        hPutStrLn stderr $ progName ++ " " ++ cmdName ++ " --help"
+    | otherwise = serverCommand sock (cmd args) (ghcOpts args)
+
+doCheck :: FilePath -> HDevTools -> IO ()
+doCheck = doFileCommand "check" $
+    \args -> CmdCheck (file args)
+
+doInfo :: FilePath -> HDevTools -> IO ()
+doInfo = doFileCommand "info" $
+    \args -> CmdInfo (file args) (identifier args)
 
 doType :: FilePath -> HDevTools -> IO ()
-doType sock args
-    | null (file args) = do
-        progName <- getProgName
-        hPutStrLn stderr "You must provide a haskell source file. See:"
-        hPutStrLn stderr $ progName ++ " type --help"
-    | otherwise = do
-        serverCommand sock (CmdType (file args) (line args, col args)) (ghcOpts args)
+doType = doFileCommand "type" $
+    \args -> CmdType (file args) (line args, col args)

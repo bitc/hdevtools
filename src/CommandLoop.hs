@@ -10,7 +10,7 @@ import Outputable (PprStyle, renderWithStyle)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 
 import Types (ClientDirective(..), Command(..))
-import Info (getType)
+import Info (getIdentifierInfo, getType)
 
 type CommandObj = (Command, [String])
 
@@ -82,6 +82,18 @@ runCommand clientSend (CmdCheck file) = do
     liftIO $ case flag of
         Succeeded -> clientSend (ClientExit ExitSuccess)
         Failed -> clientSend (ClientExit (ExitFailure 1))
+runCommand clientSend (CmdInfo file identifier) = do
+    result <- getIdentifierInfo file identifier
+    case result of
+        Left err ->
+            liftIO $ mapM_ clientSend
+                [ ClientStderr err
+                , ClientExit (ExitFailure 1)
+                ]
+        Right info -> liftIO $ mapM_ clientSend
+            [ ClientStdout info
+            , ClientExit ExitSuccess
+            ]
 runCommand clientSend (CmdType file (line, col)) = do
     result <- getType file (line, col)
     case result of
