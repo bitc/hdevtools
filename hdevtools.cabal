@@ -8,6 +8,8 @@ author:              Bit Connor
 maintainer:          mutantlemon@gmail.com
 copyright:           See AUTHORS file
 category:            Development
+homepage:            https://github.com/bitc/hdevtools/
+bug-reports:         https://github.com/bitc/hdevtools/issues/
 build-type:          Simple
 cabal-version:       >=1.8
 
