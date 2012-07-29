@@ -13,10 +13,19 @@ cabal-version:       >=1.8
 
 executable hdevtools
   hs-source-dirs:      src
-  main-is:             Main.hs
   ghc-options:         -Wall
   cpp-options:         -DCABAL
-  -- other-modules:       
+  main-is:             Main.hs
+  other-modules:       Client,
+                       CommandArgs,
+                       CommandLoop,
+                       Daemonize,
+                       Info,
+                       Main,
+                       Server,
+                       Types,
+                       Util,
+                       Paths_hdevtools
   build-depends:       base,
                        cmdargs,
                        directory,
