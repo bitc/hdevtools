@@ -1,5 +1,5 @@
 name:                hdevtools
-version:             0.1.0.1
+version:             0.1.0.2
 synopsis:            Persistent GHC powered background server for FAST haskell development tools
 -- description:         
 license:             MIT
