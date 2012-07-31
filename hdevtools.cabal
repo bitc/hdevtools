@@ -32,7 +32,7 @@ executable hdevtools
                        Types,
                        Util,
                        Paths_hdevtools
-  build-depends:       base,
+  build-depends:       base == 4.*,
                        cmdargs,
                        directory,
                        ghc,
