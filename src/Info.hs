@@ -1,14 +1,14 @@
+{-# LANGUAGE RankNTypes #-}
 module Info
     ( getIdentifierInfo
     , getType
     ) where
 
 import Control.Monad (liftM)
-import Data.Generics (GenericQ, mkQ)
+import Data.Generics (GenericQ, mkQ, extQ, gmapQ)
 import Data.List (find, sortBy, intersperse)
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Typeable (Typeable)
-import GHC.SYB.Utils (everythingStaged, Stage(TypeChecker))
 import MonadUtils (liftIO)
 import qualified CoreUtils
 import qualified Desugar
@@ -138,6 +138,27 @@ pretty =
     Pretty.showDocWith Pretty.OneLineMode
     . Outputable.withPprStyleDoc (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
     . PprTyThing.pprTypeForUser False
+
+------------------------------------------------------------------------------
+-- The following was taken from 'ghc-syb-utils'
+--
+-- ghc-syb-utils:
+--     https://github.com/nominolo/ghc-syb
+
+-- | Ghc Ast types tend to have undefined holes, to be filled
+--   by later compiler phases. We tag Asts with their source,
+--   so that we can avoid such holes based on who generated the Asts.
+data Stage = Parser | Renamer | TypeChecker deriving (Eq,Ord,Show)
+
+-- | Like 'everything', but avoid known potholes, based on the 'Stage' that
+--   generated the Ast.
+everythingStaged :: Stage -> (r -> r -> r) -> r -> GenericQ r -> GenericQ r
+everythingStaged stage k z f x
+  | (const False `extQ` postTcType `extQ` fixity `extQ` nameSet) x = z
+  | otherwise = foldl k (f x) (gmapQ (everythingStaged stage k z f) x)
+  where nameSet    = const (stage `elem` [Parser,TypeChecker]) :: NameSet.NameSet -> Bool
+        postTcType = const (stage<TypeChecker)                 :: GHC.PostTcType -> Bool
+        fixity     = const (stage<Renamer)                     :: GHC.Fixity -> Bool
 
 ------------------------------------------------------------------------------
 -- The following code was taken from GHC's ghc/InteractiveUI.hs (with some
