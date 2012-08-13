@@ -28,8 +28,10 @@ getIdentifierInfo file identifier =
     withModSummary file $ \m -> do
 #if __GLASGOW_HASKELL__ >= 706
         GHC.setContext [GHC.IIModule (GHC.moduleName (GHC.ms_mod m))]
-#else
+#elif __GLASGOW_HASKELL__ >= 704
         GHC.setContext [GHC.IIModule (GHC.ms_mod m)]
+#else
+        GHC.setContext [GHC.ms_mod m] []
 #endif
         GHC.handleSourceError (return . Left . show) $
             liftM Right (infoThing identifier)
@@ -213,7 +215,11 @@ filterOutChildren get_thing xs
   = filter (not . has_parent) xs
   where
     all_names = NameSet.mkNameSet (map (GHC.getName . get_thing) xs)
+#if __GLASGOW_HASKELL__ >= 704
     has_parent x = case HscTypes.tyThingParent_maybe (get_thing x) of
+#else
+    has_parent x = case PprTyThing.pprTyThingParent_maybe (get_thing x) of
+#endif
                      Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
                      Nothing -> False
 
