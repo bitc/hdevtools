@@ -1,9 +1,11 @@
+{-# LANGUAGE CPP #-}
 module CommandLoop
     ( startCommandLoop
     ) where
 
-import ErrUtils (Message, mkLocMessage)
+import qualified ErrUtils
 import GHC (Ghc, GhcException, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), gcatch, getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets, showGhcException)
+import qualified GHC
 import GHC.Paths (libdir)
 import MonadUtils (MonadIO, liftIO)
 import Outputable (PprStyle, renderWithStyle)
@@ -116,9 +118,18 @@ runCommand clientSend (CmdType file (line, col)) = do
             , "\"", t, "\""
             ]
 
-logAction :: ClientSend -> Severity -> SrcSpan -> PprStyle -> Message -> IO ()
+#if __GLASGOW_HASKELL__ >= 706
+logAction :: ClientSend -> GHC.DynFlags -> Severity -> SrcSpan -> PprStyle -> ErrUtils.MsgDoc -> IO ()
+logAction clientSend dflags severity srcspan style msg =
+    let out = renderWithStyle dflags fullMsg style
+        _ = severity
+    in clientSend (ClientStdout out)
+    where fullMsg = ErrUtils.mkLocMessage severity srcspan msg
+#else
+logAction :: ClientSend -> Severity -> SrcSpan -> PprStyle -> ErrUtils.Message -> IO ()
 logAction clientSend severity srcspan style msg =
     let out = renderWithStyle fullMsg style
         _ = severity
     in clientSend (ClientStdout out)
-    where fullMsg = mkLocMessage srcspan msg
+    where fullMsg = ErrUtils.mkLocMessage srcspan msg
+#endif

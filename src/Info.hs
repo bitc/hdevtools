@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 module Info
     ( getIdentifierInfo
@@ -12,6 +13,7 @@ import Data.Typeable (Typeable)
 import MonadUtils (liftIO)
 import qualified CoreUtils
 import qualified Desugar
+import qualified DynFlags
 import qualified GHC
 import qualified HscTypes
 import qualified NameSet
@@ -24,7 +26,11 @@ import qualified TcRnTypes
 getIdentifierInfo :: FilePath -> String -> GHC.Ghc (Either String String)
 getIdentifierInfo file identifier =
     withModSummary file $ \m -> do
+#if __GLASGOW_HASKELL__ >= 706
+        GHC.setContext [GHC.IIModule (GHC.moduleName (GHC.ms_mod m))]
+#else
         GHC.setContext [GHC.IIModule (GHC.ms_mod m)]
+#endif
         GHC.handleSourceError (return . Left . show) $
             liftM Right (infoThing identifier)
 
@@ -84,15 +90,26 @@ processTypeCheckedModule tcm (line, col) = do
     bts <- mapM (getTypeLHsBind tcm) bs
     ets <- mapM (getTypeLHsExpr tcm) es
     pts <- mapM (getTypeLPat tcm) ps
-    return $ map toTup $ sortBy cmp $ catMaybes $ concat [ets, bts, pts]
+#if __GLASGOW_HASKELL__ >= 706
+    dflags <- DynFlags.getDynFlags
+    return $ map (toTup dflags) $
+#else
+    return $ map toTup $
+#endif
+        sortBy cmp $ catMaybes $ concat [ets, bts, pts]
     where
     cmp (a, _) (b, _)
         | a `GHC.isSubspanOf` b = LT
         | b `GHC.isSubspanOf` a = GT
         | otherwise = EQ
 
+#if __GLASGOW_HASKELL__ >= 706
+toTup :: GHC.DynFlags -> (GHC.SrcSpan, GHC.Type) -> ((Int, Int, Int, Int), String)
+toTup dflags (spn, typ) = (fourInts spn, pretty dflags typ)
+#else
 toTup :: (GHC.SrcSpan, GHC.Type) -> ((Int, Int, Int, Int), String)
 toTup (spn, typ) = (fourInts spn, pretty typ)
+#endif
 
 fourInts :: GHC.SrcSpan -> (Int, Int, Int, Int)
 fourInts = fromMaybe (0, 0, 0, 0) . getSrcSpan
@@ -133,10 +150,20 @@ listifySpans tcs lc = listifyStaged TypeChecker p tcs
 listifyStaged :: Typeable r => Stage -> (r -> Bool) -> GenericQ [r]
 listifyStaged s p = everythingStaged s (++) [] ([] `mkQ` (\x -> [x | p x]))
 
+#if __GLASGOW_HASKELL__ >= 706
+pretty :: GHC.DynFlags -> GHC.Type -> String
+pretty dflags =
+#else
 pretty :: GHC.Type -> String
 pretty =
+#endif
     Pretty.showDocWith Pretty.OneLineMode
-    . Outputable.withPprStyleDoc (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
+#if __GLASGOW_HASKELL__ >= 706
+    . Outputable.withPprStyleDoc dflags
+#else
+    . Outputable.withPprStyleDoc
+#endif
+        (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
     . PprTyThing.pprTypeForUser False
 
 ------------------------------------------------------------------------------
@@ -170,7 +197,12 @@ infoThing str = do
     mb_stuffs <- mapM GHC.getInfo names
     let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
     unqual <- GHC.getPrintUnqual
+#if __GLASGOW_HASKELL__ >= 706
+    dflags <- DynFlags.getDynFlags
+    return $ Outputable.showSDocForUser dflags unqual $
+#else
     return $ Outputable.showSDocForUser unqual $
+#endif
         Outputable.vcat (intersperse (Outputable.text "") $ map (pprInfo False) filtered)
 
   -- Filter out names whose parent is also there Good
@@ -185,7 +217,11 @@ filterOutChildren get_thing xs
                      Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
                      Nothing -> False
 
+#if __GLASGOW_HASKELL__ >= 706
+pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst]) -> Outputable.SDoc
+#else
 pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.Instance]) -> Outputable.SDoc
+#endif
 pprInfo pefas (thing, fixity, insts) =
     PprTyThing.pprTyThingInContextLoc pefas thing
         Outputable.$$ show_fixity fixity
