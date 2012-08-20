@@ -3,6 +3,7 @@ module Main where
 import System.Environment (getProgName)
 import System.IO (hPutStrLn, stderr)
 
+import CabalOptions
 import Client (getServerStatus, serverCommand, stopServer)
 import CommandArgs
 import Daemonize (daemonize)

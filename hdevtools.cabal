@@ -47,7 +47,8 @@ executable hdevtools
   ghc-options:         -Wall
   cpp-options:         -DCABAL
   main-is:             Main.hs
-  other-modules:       Client,
+  other-modules:       CabalOptions,
+                       Client,
                        CommandArgs,
                        CommandLoop,
                        Daemonize,
@@ -58,8 +59,10 @@ executable hdevtools
                        Util,
                        Paths_hdevtools
   build-depends:       base == 4.*,
+                       Cabal,
                        cmdargs,
                        directory,
+                       filepath,
                        ghc,
                        ghc-paths,
                        syb,
