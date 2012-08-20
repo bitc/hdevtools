@@ -48,6 +48,10 @@ data HDevTools
         , line :: Int
         , col :: Int
         }
+    | Modules
+        { socket :: Maybe FilePath
+        , ghcOpts :: [String]
+        }
     deriving (Show, Data, Typeable)
 
 dummyAdmin :: HDevTools
@@ -83,6 +87,12 @@ dummyType = Type
     , col = 0
     }
 
+dummyModules :: HDevTools
+dummyModules = Modules
+    { socket = Nothing
+    , ghcOpts = []
+    }
+
 admin :: Annotate Ann
 admin = record dummyAdmin
     [ socket   := def += typFile += help "socket file to use"
@@ -116,8 +126,14 @@ type_ = record dummyType
     , col      := def += typ "COLUMN" += argPos 2
     ] += help "Get the type of the expression at the specified line and column"
 
+modules :: Annotate Ann
+modules = record dummyModules
+    [ socket  := def += typFile += help "socket file to use"
+    , ghcOpts := def += typ "OPTION" += help "ghc options"
+    ] += help "Get a list of all available modules from the installed packages"
+
 full :: String -> Annotate Ann
-full progName = modes_ [admin += auto, check, info, type_]
+full progName = modes_ [admin += auto, check, info, type_, modules]
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]
         += program progName

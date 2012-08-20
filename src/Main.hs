@@ -25,6 +25,7 @@ main = do
         Check {} -> doCheck sock args
         Info {} -> doInfo sock args
         Type {} -> doType sock args
+        Modules {} -> doModules sock args
 
 doAdmin :: FilePath -> HDevTools -> IO ()
 doAdmin sock args
@@ -59,3 +60,6 @@ doInfo = doFileCommand "info" $
 doType :: FilePath -> HDevTools -> IO ()
 doType = doFileCommand "type" $
     \args -> CmdType (file args) (line args, col args)
+
+doModules :: FilePath -> HDevTools -> IO ()
+doModules sock args = serverCommand sock CmdModules (ghcOpts args)

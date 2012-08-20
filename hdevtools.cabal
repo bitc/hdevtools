@@ -53,11 +53,13 @@ executable hdevtools
                        Daemonize,
                        Info,
                        Main,
+                       Modules,
                        Server,
                        Types,
                        Util,
                        Paths_hdevtools
   build-depends:       base == 4.*,
+                       Cabal,
                        cmdargs,
                        directory,
                        ghc,

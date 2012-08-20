@@ -23,4 +23,5 @@ data Command
     = CmdCheck FilePath
     | CmdInfo FilePath String
     | CmdType FilePath (Int, Int)
+    | CmdModules
     deriving (Read, Show)

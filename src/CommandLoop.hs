@@ -16,6 +16,7 @@ import qualified Outputable
 
 import Types (ClientDirective(..), Command(..))
 import Info (getIdentifierInfo, getType)
+import Modules (getModules)
 
 type CommandObj = (Command, [String])
 
@@ -144,6 +145,15 @@ runCommand state clientSend (CmdType file (line, col)) = do
             , show endCol , " "
             , "\"", t, "\""
             ]
+runCommand clientSend CmdModules = do
+    modules <- getModules
+    liftIO $ do
+        mapM_ (clientSend . ClientStdout . formatModule) modules
+        clientSend (ClientExit ExitSuccess)
+    where
+    formatModule :: (String, String) -> String
+    formatModule (moduleName, pkgId) = concat [moduleName, " ", pkgId]
+
 
 #if __GLASGOW_HASKELL__ >= 706
 logAction :: IORef State -> ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
