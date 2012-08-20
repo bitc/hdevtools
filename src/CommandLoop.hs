@@ -3,13 +3,12 @@ module CommandLoop
     ( startCommandLoop
     ) where
 
-import qualified ErrUtils
-import GHC (Ghc, GhcException, GhcLink(NoLink), HscTarget(HscInterpreted), LoadHowMuch(LoadAllTargets), Severity, SrcSpan, SuccessFlag(Succeeded, Failed), gcatch, getSessionDynFlags, ghcLink, guessTarget, handleSourceError, hscTarget, load, log_action, noLoc, parseDynamicFlags, printException, runGhc, setSessionDynFlags, setTargets, showGhcException)
-import qualified GHC
-import GHC.Paths (libdir)
 import MonadUtils (MonadIO, liftIO)
-import Outputable (PprStyle, renderWithStyle)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
+import qualified ErrUtils
+import qualified GHC
+import qualified GHC.Paths
+import qualified Outputable
 
 import Types (ClientDirective(..), Command(..))
 import Info (getIdentifierInfo, getType)
@@ -20,8 +19,8 @@ type ClientSend = ClientDirective -> IO ()
 
 startCommandLoop :: ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
 startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
-    continue <- runGhc (Just libdir) $ do
-        configOk <- gcatch (configSession clientSend initialGhcOpts >> return True)
+    continue <- GHC.runGhc (Just GHC.Paths.libdir) $ do
+        configOk <- GHC.gcatch (configSession clientSend initialGhcOpts >> return True)
             handleConfigError
         if configOk
             then do
@@ -35,7 +34,7 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
             return ()
         Just (cmd, ghcOpts) -> startCommandLoop clientSend getNextCommand ghcOpts (Just cmd)
     where
-    processNextCommand :: Bool -> Ghc (Maybe CommandObj)
+    processNextCommand :: Bool -> GHC.Ghc (Maybe CommandObj)
     processNextCommand forceReconfig = do
         mbNextCmd <- liftIO getNextCommand
         case mbNextCmd of
@@ -47,13 +46,13 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
                     then return (Just (cmd, ghcOpts))
                     else sendErrors (runCommand clientSend cmd) >> processNextCommand False
 
-    sendErrors :: Ghc () -> Ghc ()
-    sendErrors action = gcatch action (\x -> handleConfigError x >> return ())
+    sendErrors :: GHC.Ghc () -> GHC.Ghc ()
+    sendErrors action = GHC.gcatch action (\x -> handleConfigError x >> return ())
 
-    handleConfigError :: GhcException -> Ghc Bool
+    handleConfigError :: GHC.GhcException -> GHC.Ghc Bool
     handleConfigError e = do
         liftIO $ mapM_ clientSend
-            [ ClientStderr (showGhcException e "")
+            [ ClientStderr (GHC.showGhcException e "")
             , ClientExit (ExitFailure 1)
             ]
         return False
@@ -62,28 +61,28 @@ doMaybe :: Monad m => Maybe a -> (a -> m ()) -> m ()
 doMaybe Nothing _ = return ()
 doMaybe (Just x) f = f x
 
-configSession :: ClientSend -> [String] -> Ghc ()
+configSession :: ClientSend -> [String] -> GHC.Ghc ()
 configSession clientSend ghcOpts = do
-    initialDynFlags <- getSessionDynFlags
+    initialDynFlags <- GHC.getSessionDynFlags
     let updatedDynFlags = initialDynFlags
-            { log_action = logAction clientSend
-            , ghcLink = NoLink
-            , hscTarget = HscInterpreted
+            { GHC.log_action = logAction clientSend
+            , GHC.ghcLink = GHC.NoLink
+            , GHC.hscTarget = GHC.HscInterpreted
             }
-    (finalDynFlags, _, _) <- parseDynamicFlags updatedDynFlags (map noLoc ghcOpts)
-    _ <- setSessionDynFlags finalDynFlags
+    (finalDynFlags, _, _) <- GHC.parseDynamicFlags updatedDynFlags (map GHC.noLoc ghcOpts)
+    _ <- GHC.setSessionDynFlags finalDynFlags
     return ()
 
-runCommand :: ClientSend -> Command -> Ghc ()
+runCommand :: ClientSend -> Command -> GHC.Ghc ()
 runCommand clientSend (CmdCheck file) = do
     let noPhase = Nothing
-    target <- guessTarget file noPhase
-    setTargets [target]
-    let handler err = printException err >> return Failed
-    flag <- handleSourceError handler (load LoadAllTargets)
+    target <- GHC.guessTarget file noPhase
+    GHC.setTargets [target]
+    let handler err = GHC.printException err >> return GHC.Failed
+    flag <- GHC.handleSourceError handler (GHC.load GHC.LoadAllTargets)
     liftIO $ case flag of
-        Succeeded -> clientSend (ClientExit ExitSuccess)
-        Failed -> clientSend (ClientExit (ExitFailure 1))
+        GHC.Succeeded -> clientSend (ClientExit ExitSuccess)
+        GHC.Failed -> clientSend (ClientExit (ExitFailure 1))
 runCommand clientSend (CmdInfo file identifier) = do
     result <- getIdentifierInfo file identifier
     case result of
@@ -119,16 +118,16 @@ runCommand clientSend (CmdType file (line, col)) = do
             ]
 
 #if __GLASGOW_HASKELL__ >= 706
-logAction :: ClientSend -> GHC.DynFlags -> Severity -> SrcSpan -> PprStyle -> ErrUtils.MsgDoc -> IO ()
+logAction :: ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
 logAction clientSend dflags severity srcspan style msg =
-    let out = renderWithStyle dflags fullMsg style
+    let out = Outputable.renderWithStyle dflags fullMsg style
         _ = severity
     in clientSend (ClientStdout out)
     where fullMsg = ErrUtils.mkLocMessage severity srcspan msg
 #else
-logAction :: ClientSend -> Severity -> SrcSpan -> PprStyle -> ErrUtils.Message -> IO ()
+logAction :: ClientSend -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.Message -> IO ()
 logAction clientSend severity srcspan style msg =
-    let out = renderWithStyle fullMsg style
+    let out = Outputable.renderWithStyle fullMsg style
         _ = severity
     in clientSend (ClientStdout out)
     where fullMsg = ErrUtils.mkLocMessage srcspan msg
