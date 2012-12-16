@@ -13,7 +13,9 @@ import Data.Typeable (Typeable)
 import MonadUtils (liftIO)
 import qualified CoreUtils
 import qualified Desugar
+#if __GLASGOW_HASKELL__ >= 706
 import qualified DynFlags
+#endif
 import qualified GHC
 import qualified HscTypes
 import qualified NameSet
