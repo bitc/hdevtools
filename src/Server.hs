@@ -9,7 +9,7 @@ import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
 import System.IO.Error (isDoesNotExistError)
 
-import CommandLoop (startCommandLoop)
+import CommandLoop (newCommandLoopState, startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
 import Util (readMaybe)
 
@@ -30,8 +30,9 @@ startServer socketPath mbSock = do
 
     go :: Socket -> IO ()
     go sock = do
+        state <- newCommandLoopState
         currentClient <- newIORef Nothing
-        startCommandLoop (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
+        startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
 
     removeSocketFile :: IO ()
     removeSocketFile = do

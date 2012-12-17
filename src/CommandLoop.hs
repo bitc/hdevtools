@@ -1,8 +1,11 @@
 {-# LANGUAGE CPP #-}
 module CommandLoop
-    ( startCommandLoop
+    ( newCommandLoopState
+    , startCommandLoop
     ) where
 
+import Control.Monad (when)
+import Data.IORef
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 import qualified ErrUtils
@@ -17,14 +20,40 @@ type CommandObj = (Command, [String])
 
 type ClientSend = ClientDirective -> IO ()
 
-startCommandLoop :: ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
-startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
+data State = State
+    { stateWarningsEnabled :: Bool
+    }
+
+newCommandLoopState :: IO (IORef State)
+newCommandLoopState = do
+    newIORef $ State
+        { stateWarningsEnabled = True
+        }
+
+withWarnings :: MonadIO m => IORef State -> Bool -> m a -> m a
+withWarnings state warningsValue action = do
+    beforeState <- liftIO $ getWarnings
+    liftIO $ setWarnings warningsValue
+    -- TODO If an exception is thrown by action then the state won't be
+    -- restored. Not sure what the best way to handle exceptions is. `finally`
+    -- can't be used because we are in MonadIO, not regular IO
+    result <- action
+    liftIO $ setWarnings beforeState
+    return result
+    where
+    getWarnings :: IO Bool
+    getWarnings = readIORef state >>= return . stateWarningsEnabled
+    setWarnings :: Bool -> IO ()
+    setWarnings val = modifyIORef state $ \s -> s { stateWarningsEnabled = val }
+
+startCommandLoop :: IORef State -> ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
+startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
     continue <- GHC.runGhc (Just GHC.Paths.libdir) $ do
-        configOk <- GHC.gcatch (configSession clientSend initialGhcOpts >> return True)
+        configOk <- GHC.gcatch (configSession state clientSend initialGhcOpts >> return True)
             handleConfigError
         if configOk
             then do
-                doMaybe mbInitial $ \cmd -> sendErrors (runCommand clientSend cmd)
+                doMaybe mbInitial $ \cmd -> sendErrors (runCommand state clientSend cmd)
                 processNextCommand False
             else processNextCommand True
 
@@ -32,7 +61,7 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
         Nothing ->
             -- Exit
             return ()
-        Just (cmd, ghcOpts) -> startCommandLoop clientSend getNextCommand ghcOpts (Just cmd)
+        Just (cmd, ghcOpts) -> startCommandLoop state clientSend getNextCommand ghcOpts (Just cmd)
     where
     processNextCommand :: Bool -> GHC.Ghc (Maybe CommandObj)
     processNextCommand forceReconfig = do
@@ -44,7 +73,7 @@ startCommandLoop clientSend getNextCommand initialGhcOpts mbInitial = do
             Just (cmd, ghcOpts) ->
                 if forceReconfig || (ghcOpts /= initialGhcOpts)
                     then return (Just (cmd, ghcOpts))
-                    else sendErrors (runCommand clientSend cmd) >> processNextCommand False
+                    else sendErrors (runCommand state clientSend cmd) >> processNextCommand False
 
     sendErrors :: GHC.Ghc () -> GHC.Ghc ()
     sendErrors action = GHC.gcatch action (\x -> handleConfigError x >> return ())
@@ -61,11 +90,11 @@ doMaybe :: Monad m => Maybe a -> (a -> m ()) -> m ()
 doMaybe Nothing _ = return ()
 doMaybe (Just x) f = f x
 
-configSession :: ClientSend -> [String] -> GHC.Ghc ()
-configSession clientSend ghcOpts = do
+configSession :: IORef State -> ClientSend -> [String] -> GHC.Ghc ()
+configSession state clientSend ghcOpts = do
     initialDynFlags <- GHC.getSessionDynFlags
     let updatedDynFlags = initialDynFlags
-            { GHC.log_action = logAction clientSend
+            { GHC.log_action = logAction state clientSend
             , GHC.ghcLink = GHC.NoLink
             , GHC.hscTarget = GHC.HscInterpreted
             }
@@ -73,8 +102,8 @@ configSession clientSend ghcOpts = do
     _ <- GHC.setSessionDynFlags finalDynFlags
     return ()
 
-runCommand :: ClientSend -> Command -> GHC.Ghc ()
-runCommand clientSend (CmdCheck file) = do
+runCommand :: IORef State -> ClientSend -> Command -> GHC.Ghc ()
+runCommand _ clientSend (CmdCheck file) = do
     let noPhase = Nothing
     target <- GHC.guessTarget file noPhase
     GHC.setTargets [target]
@@ -83,8 +112,9 @@ runCommand clientSend (CmdCheck file) = do
     liftIO $ case flag of
         GHC.Succeeded -> clientSend (ClientExit ExitSuccess)
         GHC.Failed -> clientSend (ClientExit (ExitFailure 1))
-runCommand clientSend (CmdInfo file identifier) = do
-    result <- getIdentifierInfo file identifier
+runCommand state clientSend (CmdInfo file identifier) = do
+    result <- withWarnings state False $
+        getIdentifierInfo file identifier
     case result of
         Left err ->
             liftIO $ mapM_ clientSend
@@ -95,8 +125,9 @@ runCommand clientSend (CmdInfo file identifier) = do
             [ ClientStdout info
             , ClientExit ExitSuccess
             ]
-runCommand clientSend (CmdType file (line, col)) = do
-    result <- getType file (line, col)
+runCommand state clientSend (CmdType file (line, col)) = do
+    result <- withWarnings state False $
+        getType file (line, col)
     case result of
         Left err ->
             liftIO $ mapM_ clientSend
@@ -118,17 +149,27 @@ runCommand clientSend (CmdType file (line, col)) = do
             ]
 
 #if __GLASGOW_HASKELL__ >= 706
-logAction :: ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
-logAction clientSend dflags severity srcspan style msg =
+logAction :: IORef State -> ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
+logAction state clientSend dflags severity srcspan style msg =
     let out = Outputable.renderWithStyle dflags fullMsg style
         _ = severity
-    in clientSend (ClientStdout out)
+    in logActionSend state clientSend severity out
     where fullMsg = ErrUtils.mkLocMessage severity srcspan msg
 #else
-logAction :: ClientSend -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.Message -> IO ()
-logAction clientSend severity srcspan style msg =
+logAction :: IORef State -> ClientSend -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.Message -> IO ()
+logAction state clientSend severity srcspan style msg =
     let out = Outputable.renderWithStyle fullMsg style
         _ = severity
-    in clientSend (ClientStdout out)
+    in logActionSend state clientSend severity out
     where fullMsg = ErrUtils.mkLocMessage srcspan msg
 #endif
+
+logActionSend :: IORef State -> ClientSend -> GHC.Severity -> String -> IO ()
+logActionSend state clientSend severity out = do
+    currentState <- readIORef state
+    when (not (isWarning severity) || stateWarningsEnabled currentState) $
+        clientSend (ClientStdout out)
+    where
+    isWarning :: GHC.Severity -> Bool
+    isWarning GHC.SevWarning = True
+    isWarning _ = False
