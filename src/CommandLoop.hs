@@ -9,6 +9,7 @@ import Data.IORef
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 import qualified ErrUtils
+import qualified Exception (ExceptionMonad)
 import qualified GHC
 import qualified GHC.Paths
 import qualified Outputable
@@ -30,16 +31,12 @@ newCommandLoopState = do
         { stateWarningsEnabled = True
         }
 
-withWarnings :: MonadIO m => IORef State -> Bool -> m a -> m a
+withWarnings :: (MonadIO m, Exception.ExceptionMonad m) => IORef State -> Bool -> m a -> m a
 withWarnings state warningsValue action = do
     beforeState <- liftIO $ getWarnings
     liftIO $ setWarnings warningsValue
-    -- TODO If an exception is thrown by action then the state won't be
-    -- restored. Not sure what the best way to handle exceptions is. `finally`
-    -- can't be used because we are in MonadIO, not regular IO
-    result <- action
-    liftIO $ setWarnings beforeState
-    return result
+    action `GHC.gfinally`
+        (liftIO $ setWarnings beforeState)
     where
     getWarnings :: IO Bool
     getWarnings = readIORef state >>= return . stateWarningsEnabled
