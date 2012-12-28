@@ -8,6 +8,8 @@ where
 
 import System.Console.CmdArgs.Implicit
 import System.Environment (getProgName)
+import System.Info (arch, os)
+import qualified Config
 
 #ifdef CABAL
 import Data.Version (showVersion)
@@ -21,6 +23,13 @@ programVersion =
 #else
     "unknown-version (not built with cabal)"
 #endif
+
+fullVersion :: String
+fullVersion =
+    concat
+        [ programVersion
+        , " (ghc-", Config.cProjectVersion, "-", arch, "-", os, ")"
+        ]
 
 data HDevTools
     = Admin
@@ -140,7 +149,7 @@ full progName = modes_ [admin += auto, check, moduleFile, info, type_]
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]
         += program progName
-        += summary (progName ++ ": " ++ programVersion)
+        += summary (progName ++ ": " ++ fullVersion)
 
 loadHDevTools :: IO HDevTools
 loadHDevTools = do
