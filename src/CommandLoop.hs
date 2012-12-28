@@ -6,6 +6,7 @@ module CommandLoop
 
 import Control.Monad (when)
 import Data.IORef
+import Data.List (find)
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 import qualified ErrUtils
@@ -109,6 +110,29 @@ runCommand _ clientSend (CmdCheck file) = do
     liftIO $ case flag of
         GHC.Succeeded -> clientSend (ClientExit ExitSuccess)
         GHC.Failed -> clientSend (ClientExit (ExitFailure 1))
+runCommand _ clientSend (CmdModuleFile moduleName) = do
+    moduleGraph <- GHC.getModuleGraph
+    case find (moduleSummaryMatchesModuleName moduleName) moduleGraph of
+        Nothing ->
+            liftIO $ mapM_ clientSend
+                [ ClientStderr "Module not found"
+                , ClientExit (ExitFailure 1)
+                ]
+        Just modSummary ->
+            case GHC.ml_hs_file (GHC.ms_location modSummary) of
+                Nothing ->
+                    liftIO $ mapM_ clientSend
+                        [ ClientStderr "Module does not have a source file"
+                        , ClientExit (ExitFailure 1)
+                        ]
+                Just file ->
+                    liftIO $ mapM_ clientSend
+                        [ ClientStdout file
+                        , ClientExit ExitSuccess
+                        ]
+    where
+    moduleSummaryMatchesModuleName modName modSummary =
+        modName == (GHC.moduleNameString . GHC.moduleName . GHC.ms_mod) modSummary
 runCommand state clientSend (CmdInfo file identifier) = do
     result <- withWarnings state False $
         getIdentifierInfo file identifier

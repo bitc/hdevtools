@@ -23,6 +23,7 @@ main = do
     case args of
         Admin {} -> doAdmin sock args
         Check {} -> doCheck sock args
+        ModuleFile {} -> doModuleFile sock args
         Info {} -> doInfo sock args
         Type {} -> doType sock args
 
@@ -39,6 +40,10 @@ doAdmin sock args
         progName <- getProgName
         hPutStrLn stderr "You must provide a command. See:"
         hPutStrLn stderr $ progName ++ " --help"
+
+doModuleFile :: FilePath -> HDevTools -> IO ()
+doModuleFile sock args =
+    serverCommand sock (CmdModuleFile (module_ args)) (ghcOpts args)
 
 doFileCommand :: String -> (HDevTools -> Command) -> FilePath -> HDevTools -> IO ()
 doFileCommand cmdName cmd sock args

@@ -35,6 +35,11 @@ data HDevTools
         , ghcOpts :: [String]
         , file :: String
         }
+    | ModuleFile
+        { socket :: Maybe FilePath
+        , ghcOpts :: [String]
+        , module_ :: String
+        }
     | Info
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
@@ -64,6 +69,13 @@ dummyCheck = Check
     { socket = Nothing
     , ghcOpts = []
     , file = ""
+    }
+
+dummyModuleFile :: HDevTools
+dummyModuleFile = ModuleFile
+    { socket = Nothing
+    , ghcOpts = []
+    , module_ = ""
     }
 
 dummyInfo :: HDevTools
@@ -99,6 +111,13 @@ check = record dummyCheck
     , file     := def += typFile      += argPos 0 += opt ""
     ] += help "Check a haskell source file for errors and warnings"
 
+moduleFile :: Annotate Ann
+moduleFile = record dummyModuleFile
+    [ socket   := def += typFile += help "socket file to use"
+    , ghcOpts  := def += typ "OPTION" += help "ghc options"
+    , module_  := def += typ "MODULE" += argPos 0
+    ] += help "Get the haskell source file corresponding to a module name"
+
 info :: Annotate Ann
 info = record dummyInfo
     [ socket     := def += typFile += help "socket file to use"
@@ -117,7 +136,7 @@ type_ = record dummyType
     ] += help "Get the type of the expression at the specified line and column"
 
 full :: String -> Annotate Ann
-full progName = modes_ [admin += auto, check, info, type_]
+full progName = modes_ [admin += auto, check, moduleFile, info, type_]
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]
         += program progName
