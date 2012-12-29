@@ -60,7 +60,7 @@ executable hdevtools
   build-depends:       base == 4.*,
                        cmdargs,
                        directory,
-                       ghc,
+                       ghc >= 7.2,
                        ghc-paths,
                        syb,
                        network,
