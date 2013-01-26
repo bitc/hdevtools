@@ -1,13 +1,14 @@
 module Server where
 
-import Control.Exception (bracket, finally, tryJust)
+import Control.Exception (bracket, finally, handleJust, tryJust)
 import Control.Monad (guard)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import GHC.IO.Exception (IOErrorType(ResourceVanished))
 import Network (PortID(UnixSocket), Socket, accept, listenOn, sClose)
 import System.Directory (removeFile)
 import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
-import System.IO.Error (isDoesNotExistError)
+import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
 
 import CommandLoop (newCommandLoopState, startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
@@ -44,11 +45,14 @@ clientSend :: IORef (Maybe Handle) -> ClientDirective -> IO ()
 clientSend currentClient clientDirective = do
     mbH <- readIORef currentClient
     case mbH of
-        Just h -> do
-            -- TODO catch exception
+        Just h -> ignoreEPipe $ do
             hPutStrLn h (show clientDirective)
             hFlush h
         Nothing -> error "This is impossible"
+    where
+    -- EPIPE means that the client is no longer there.
+    ignoreEPipe = handleJust (guard . isEPipe) (const $ return ())
+    isEPipe = (==ResourceVanished) . ioeGetErrorType
 
 getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, [String]))
 getNextCommand currentClient sock = do
