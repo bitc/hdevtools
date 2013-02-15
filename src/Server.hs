@@ -8,15 +8,20 @@ import Network (PortID(UnixSocket), Socket, accept, listenOn, sClose)
 import System.Directory (removeFile)
 import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
-import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
+import System.IO.Error (ioeGetErrorType, isAlreadyInUseError, isDoesNotExistError)
 
 import CommandLoop (newCommandLoopState, startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
 import Util (readMaybe)
 
 createListenSocket :: FilePath -> IO Socket
-createListenSocket socketPath =
-    listenOn (UnixSocket socketPath)
+createListenSocket socketPath = do
+    r <- tryJust (guard . isAlreadyInUseError) $ listenOn (UnixSocket socketPath)
+    case r of
+        Right socket -> return socket
+        Left _ -> do
+            removeFile socketPath
+            listenOn (UnixSocket socketPath)
 
 startServer :: FilePath -> Maybe Socket -> IO ()
 startServer socketPath mbSock = do
