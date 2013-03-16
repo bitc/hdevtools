@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Main where
 
 import System.Environment (getProgName, getExecutablePath)
@@ -10,7 +12,11 @@ import Daemonize (daemonize)
 import Types (Command(..))
 
 defaultSocketFilename :: FilePath
+#ifdef mingw32_HOST_OS
+defaultSocketFilename = show 43210
+#else
 defaultSocketFilename = ".hdevtools.sock"
+#endif
 
 getSocketFilename :: Maybe FilePath -> FilePath
 getSocketFilename Nothing = defaultSocketFilename
