@@ -1,12 +1,12 @@
 module Main where
 
-import System.Environment (getProgName)
+import System.Environment (getProgName, getExecutablePath)
 import System.IO (hPutStrLn, stderr)
 
 import Client (getServerStatus, serverCommand, stopServer)
 import CommandArgs
-import Daemonize (daemonize)
 import Server (startServer, createListenSocket)
+import Daemonize (daemonize)
 import Types (Command(..))
 
 defaultSocketFilename :: FilePath
@@ -32,8 +32,7 @@ doAdmin sock args
     | start_server args =
         if noDaemon args then startServer sock Nothing
             else do
-                s <- createListenSocket sock
-                daemonize True $ startServer sock (Just s)
+                daemonize True sock
     | status args = getServerStatus sock
     | stop_server args = stopServer sock
     | otherwise = do

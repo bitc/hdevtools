@@ -64,5 +64,12 @@ executable hdevtools
                        ghc-paths,
                        syb,
                        network,
-                       time,
+                       time
+
+  if os(windows)
+    build-depends:
+                       filepath == 1.3.*,
+                       process == 1.1.*
+  else
+    build-depends:
                        unix
