@@ -9,7 +9,6 @@ import Data.IORef
 import Data.List (find)
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
-import System.Directory (setCurrentDirectory)
 import qualified ErrUtils
 import qualified Exception (ExceptionMonad)
 import qualified GHC
@@ -19,7 +18,7 @@ import qualified Outputable
 import Types (ClientDirective(..), Command(..))
 import Info (getIdentifierInfo, getType)
 
-type CommandObj = (FilePath, (Command, [String]))
+type CommandObj = (Command, [String])
 
 type ClientSend = ClientDirective -> IO ()
 
@@ -45,14 +44,14 @@ withWarnings state warningsValue action = do
     setWarnings :: Bool -> IO ()
     setWarnings val = modifyIORef state $ \s -> s { stateWarningsEnabled = val }
 
-startCommandLoop :: IORef State -> ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe (FilePath, Command) -> IO ()
+startCommandLoop :: IORef State -> ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
 startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
     continue <- GHC.runGhc (Just GHC.Paths.libdir) $ do
         configOk <- GHC.gcatch (configSession state clientSend initialGhcOpts >> return True)
             handleConfigError
         if configOk
             then do
-                doMaybe mbInitial $ \(cwd, cmd) -> liftIO (setCurrentDirectory cwd) >> sendErrors (runCommand state clientSend cmd)
+                doMaybe mbInitial $ \cmd -> sendErrors (runCommand state clientSend cmd)
                 processNextCommand False
             else processNextCommand True
 
@@ -60,7 +59,7 @@ startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
         Nothing ->
             -- Exit
             return ()
-        Just (cwd, (cmd, ghcOpts)) -> startCommandLoop state clientSend getNextCommand ghcOpts (Just (cwd, cmd))
+        Just (cmd, ghcOpts) -> startCommandLoop state clientSend getNextCommand ghcOpts (Just cmd)
     where
     processNextCommand :: Bool -> GHC.Ghc (Maybe CommandObj)
     processNextCommand forceReconfig = do
@@ -69,10 +68,10 @@ startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
             Nothing ->
                 -- Exit
                 return Nothing
-            Just (cwd, (cmd, ghcOpts)) ->
+            Just (cmd, ghcOpts) ->
                 if forceReconfig || (ghcOpts /= initialGhcOpts)
-                    then return (Just (cwd, (cmd, ghcOpts)))
-                    else sendErrors (liftIO (setCurrentDirectory cwd) >> runCommand state clientSend cmd) >> processNextCommand False
+                    then return (Just (cmd, ghcOpts))
+                    else sendErrors (runCommand state clientSend cmd) >> processNextCommand False
 
     sendErrors :: GHC.Ghc () -> GHC.Ghc ()
     sendErrors action = GHC.gcatch action (\x -> handleConfigError x >> return ())

@@ -57,7 +57,7 @@ clientSend currentClient clientDirective = do
     ignoreEPipe = handleJust (guard . isEPipe) (const $ return ())
     isEPipe = (==ResourceVanished) . ioeGetErrorType
 
-getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (FilePath, (Command, [String])))
+getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, [String]))
 getNextCommand currentClient sock = do
     checkCurrent <- readIORef currentClient
     case checkCurrent of
@@ -72,8 +72,8 @@ getNextCommand currentClient sock = do
             clientSend currentClient $ ClientUnexpectedError $
                 "The client sent an invalid message to the server: " ++ show msg
             getNextCommand currentClient sock
-        Just (SrvCommand cwd cmd ghcOpts) -> do
-            return $ Just (cwd, (cmd, ghcOpts))
+        Just (SrvCommand cmd ghcOpts) -> do
+            return $ Just (cmd, ghcOpts)
         Just SrvStatus -> do
             mapM_ (clientSend currentClient) $
                 [ ClientStdout "Server is running."
