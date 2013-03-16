@@ -17,6 +17,7 @@ import Network (PortID(UnixSocket))
 import System.Exit (exitFailure, exitWith)
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn, stderr)
 import System.IO.Error (isDoesNotExistError)
+import System.Directory (getCurrentDirectory)
 
 import Daemonize (daemonize)
 import Server (createListenSocket, startServer)
@@ -42,7 +43,8 @@ serverCommand sock cmd ghcOpts = do
     r <- tryJust (guard . isDoesNotExistError) (connect sock)
     case r of
         Right h -> do
-            hPutStrLn h $ show (SrvCommand cmd ghcOpts)
+            cwd <- getCurrentDirectory
+            hPutStrLn h $ show (SrvCommand cwd cmd ghcOpts)
             hFlush h
             startClientReadLoop h
         Left _ -> do

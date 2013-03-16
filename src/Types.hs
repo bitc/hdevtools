@@ -7,7 +7,7 @@ module Types
 import System.Exit (ExitCode)
 
 data ServerDirective
-    = SrvCommand Command [String]
+    = SrvCommand FilePath Command [String]
     | SrvStatus
     | SrvExit
     deriving (Read, Show)
