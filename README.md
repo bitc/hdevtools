@@ -67,10 +67,10 @@ including retrieving info about the identifier under the cursor, and getting
 the type of the code under the cursor. Refer to its documentation for more
 details.
 
-### Emacs ###
+### Emacs - [flycheck][5] ###
 
-I encourage the community to develop integration plugins for Emacs and other
-editors. In the mean time, please see the manual integration information below.
+[Flycheck][5] is a modern batteries-included
+syntax checker for Emacs, and as of July 1013 it includes support for `hdevtools`.
 
 ### Manual Editor Integration for any Editor ###
 
@@ -180,3 +180,4 @@ client-server architecture it is much faster.
 [2]: https://github.com/scrooloose/syntastic
 [3]: https://github.com/bitc/vim-hdevtools
 [4]: http://www.mew.org/~kazu/proj/ghc-mod/en/
+[5]: https://github.com/lunaryorn/flycheck
