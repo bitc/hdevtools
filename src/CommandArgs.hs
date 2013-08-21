@@ -42,7 +42,7 @@ data HDevTools
     | Check
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
-        , file :: String
+        , files :: [String]
         }
     | ModuleFile
         { socket :: Maybe FilePath
@@ -77,7 +77,7 @@ dummyCheck :: HDevTools
 dummyCheck = Check
     { socket = Nothing
     , ghcOpts = []
-    , file = ""
+    , files = []
     }
 
 dummyModuleFile :: HDevTools
@@ -117,8 +117,8 @@ check :: Annotate Ann
 check = record dummyCheck
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION"   += help "ghc options"
-    , file     := def += typFile      += argPos 0 += opt ""
-    ] += help "Check a haskell source file for errors and warnings"
+    , files    := def += typ "FILES..." += args += opt ([] :: [FilePath])
+    ] += help "Check haskell source files for errors and warnings"
 
 moduleFile :: Annotate Ann
 moduleFile = record dummyModuleFile

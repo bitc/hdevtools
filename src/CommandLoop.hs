@@ -4,7 +4,7 @@ module CommandLoop
     , startCommandLoop
     ) where
 
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import Data.IORef
 import Data.List (find)
 import MonadUtils (MonadIO, liftIO)
@@ -101,10 +101,10 @@ configSession state clientSend ghcOpts = do
     return ()
 
 runCommand :: IORef State -> ClientSend -> Command -> GHC.Ghc ()
-runCommand _ clientSend (CmdCheck file) = do
+runCommand _ clientSend (CmdCheck files) = do
     let noPhase = Nothing
-    target <- GHC.guessTarget file noPhase
-    GHC.setTargets [target]
+    targets <- forM files $ \f -> GHC.guessTarget f noPhase
+    GHC.setTargets targets
     let handler err = GHC.printException err >> return GHC.Failed
     flag <- GHC.handleSourceError handler (GHC.load GHC.LoadAllTargets)
     liftIO $ case flag of
