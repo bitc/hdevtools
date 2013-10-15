@@ -70,7 +70,7 @@ details.
 ### Emacs - [flycheck][5] ###
 
 [Flycheck][5] is a modern batteries-included
-syntax checker for Emacs, and as of July 1013 it includes support for `hdevtools`.
+syntax checker for Emacs, and as of July 2013 it includes support for `hdevtools`.
 
 ### Manual Editor Integration for any Editor ###
 
