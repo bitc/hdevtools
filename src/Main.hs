@@ -26,6 +26,7 @@ main = do
         ModuleFile {} -> doModuleFile sock args
         Info {} -> doInfo sock args
         Type {} -> doType sock args
+        FindSymbol {} -> doFindSymbol sock args
 
 doAdmin :: FilePath -> HDevTools -> IO ()
 doAdmin sock args
@@ -64,3 +65,7 @@ doInfo = doFileCommand "info" $
 doType :: FilePath -> HDevTools -> IO ()
 doType = doFileCommand "type" $
     \args -> CmdType (file args) (line args, col args)
+
+doFindSymbol :: FilePath -> HDevTools -> IO ()
+doFindSymbol sock args =
+    serverCommand sock (CmdFindSymbol (symbol args)) (ghcOpts args)
