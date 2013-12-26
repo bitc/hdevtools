@@ -172,7 +172,10 @@ runCommand state clientSend (CmdType file (line, col)) = do
 runCommand state clientSend (CmdFindSymbol symbol) = do
     result <- withWarnings state False $ findSymbol symbol
     case result of
-        []      -> liftIO $ clientSend (ClientExit ExitSuccess)
+        []      -> liftIO $ mapM_ clientSend
+                       [ ClientStderr $ "Couldn't find modules containing '" ++ symbol ++ "'"
+                       , ClientExit (ExitFailure 1)
+                       ]
         modules -> liftIO $ mapM_ clientSend
                        [ ClientStdout (formatModules modules)
                        , ClientExit ExitSuccess
