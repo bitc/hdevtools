@@ -1,14 +1,17 @@
+
 module FindSymbol
     ( findSymbol
     ) where
 
 import Control.Applicative ((<$>))
 import Control.Monad (foldM)
+import Control.Exception
 import Data.List (find)
 import qualified GHC                    
 import qualified UniqFM
 import qualified Packages as PKG
 import qualified Name
+import Exception (ghandle)
 
 findSymbol :: String -> GHC.Ghc [String]
 findSymbol symbol = do
@@ -25,11 +28,15 @@ findSymbol symbol = do
 
 allExportedSymbols :: GHC.ModuleName -> GHC.Ghc [String]
 allExportedSymbols modul = do
-   maybeInfo <- moduleInfo
-   case maybeInfo of
-       Just info -> return $ exports info
-       _         -> return []
+   ghandle handleException $ do
+      maybeInfo <- moduleInfo
+      return $ case maybeInfo of
+                  Just info -> exports info
+                  _         -> []
    where
+   handleException :: SomeException -> GHC.Ghc [String]
+   handleException _ = return []
+
    exports    = map Name.getOccString . GHC.modInfoExports
    moduleInfo = GHC.findModule modul Nothing >>= GHC.getModuleInfo
 
