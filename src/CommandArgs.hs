@@ -66,6 +66,7 @@ data HDevTools
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
         , symbol :: String
+        , file :: String
         }
     deriving (Show, Data, Typeable)
 
@@ -114,6 +115,7 @@ dummyFindSymbol = FindSymbol
     { socket = Nothing
     , ghcOpts = []
     , symbol = ""
+    , file = ""
     }
 
 admin :: Annotate Ann
@@ -161,6 +163,7 @@ findSymbol = record dummyFindSymbol
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
     , symbol   := def += typ "SYMBOL" += argPos 0
+    , file     := def += typFile += argPos 1
     ] += help "Find the modules where the given symbol is defined"
 
 full :: String -> Annotate Ann

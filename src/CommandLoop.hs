@@ -169,7 +169,13 @@ runCommand state clientSend (CmdType file (line, col)) = do
             , show endCol , " "
             , "\"", t, "\""
             ]
-runCommand state clientSend (CmdFindSymbol symbol) = do
+runCommand state clientSend (CmdFindSymbol symbol file) = do
+    let noPhase = Nothing
+    target <- GHC.guessTarget file noPhase
+    GHC.setTargets [target]
+    let handler err = GHC.printException err >> return GHC.Failed
+    _ <- GHC.handleSourceError handler (GHC.load GHC.LoadAllTargets)
+
     result <- withWarnings state False $ findSymbol symbol
     case result of
         []      -> liftIO $ mapM_ clientSend
@@ -182,6 +188,8 @@ runCommand state clientSend (CmdFindSymbol symbol) = do
                        ]
     where
     formatModules = intercalate "\n"
+
+    
 
 #if __GLASGOW_HASKELL__ >= 706
 logAction :: IORef State -> ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()

@@ -1,3 +1,4 @@
+{-# Language ScopedTypeVariables #-}
 
 module FindSymbol
     ( findSymbol
@@ -7,6 +8,7 @@ import Control.Applicative ((<$>))
 import Control.Monad (foldM)
 import Control.Exception
 import Data.List (find)
+import Data.Maybe (catMaybes)
 import qualified GHC                    
 import qualified UniqFM
 import qualified Packages as PKG
@@ -15,33 +17,38 @@ import Exception (ghandle)
 
 findSymbol :: String -> GHC.Ghc [String]
 findSymbol symbol = do
-   modules <- allExposedModules
-   modulesWith symbol modules
+   graphModules <- modulesWith symbol =<< allModulesFromGraph
+   expModules   <- modulesWith symbol =<< allExposedModules
+   return $ graphModules ++ expModules
    where
    modulesWith sym = foldM (hasSym sym) []
 
    hasSym sym modsWithSym modul = do
       syms <- allExportedSymbols modul
       return $ case find (== sym) syms of
-                   Just _ -> (GHC.moduleNameString modul) : modsWithSym
+                   Just _ -> (GHC.moduleNameString . GHC.moduleName $ modul) : modsWithSym
                    _      -> modsWithSym
 
-allExportedSymbols :: GHC.ModuleName -> GHC.Ghc [String]
-allExportedSymbols modul = do
-   ghandle handleException $ do
-      maybeInfo <- moduleInfo
-      return $ case maybeInfo of
-                  Just info -> exports info
-                  _         -> []
-   where
-   handleException :: SomeException -> GHC.Ghc [String]
-   handleException _ = return []
+allExportedSymbols :: GHC.Module -> GHC.Ghc [String]
+allExportedSymbols module_ =
+   ghandle (\(_ :: SomeException) -> return [])
+           (do info <- GHC.getModuleInfo module_
+               return $ maybe [] (map Name.getOccString . GHC.modInfoExports) info)
 
-   exports    = map Name.getOccString . GHC.modInfoExports
-   moduleInfo = GHC.findModule modul Nothing >>= GHC.getModuleInfo
+allModulesFromGraph :: GHC.Ghc [GHC.Module]
+allModulesFromGraph = do
+    moduleGraph <- GHC.getModuleGraph
+    return $ map GHC.ms_mod moduleGraph
 
-allExposedModules :: GHC.Ghc [GHC.ModuleName]
-allExposedModules = getExposedModules <$> GHC.getSessionDynFlags
+allExposedModules :: GHC.Ghc [GHC.Module]
+allExposedModules = do
+   modNames <- exposedModuleNames <$> GHC.getSessionDynFlags
+   catMaybes <$> mapM findModule modNames
    where
-   getExposedModules = concatMap (\pkg -> if PKG.exposed pkg then PKG.exposedModules pkg else [])
-                       . UniqFM.eltsUFM . PKG.pkgIdMap . GHC.pkgState
+   exposedModuleNames = concatMap (\pkg -> if PKG.exposed pkg then PKG.exposedModules pkg else [])
+                        . UniqFM.eltsUFM . PKG.pkgIdMap . GHC.pkgState
+
+findModule :: GHC.ModuleName -> GHC.Ghc (Maybe GHC.Module)
+findModule moduleName =
+   ghandle (\(_ :: SomeException) -> return Nothing)
+           (Just <$> GHC.findModule moduleName Nothing)
