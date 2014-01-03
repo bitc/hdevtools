@@ -7,7 +7,7 @@ module FindSymbol
 import Control.Applicative ((<$>))
 import Control.Monad (foldM)
 import Control.Exception
-import Data.List (find)
+import Data.List (find, nub)
 import Data.Maybe (catMaybes)
 import qualified GHC                    
 import qualified UniqFM
@@ -19,7 +19,7 @@ findSymbol :: String -> GHC.Ghc [String]
 findSymbol symbol = do
    graphModules <- modulesWith symbol =<< allModulesFromGraph
    expModules   <- modulesWith symbol =<< allExposedModules
-   return $ graphModules ++ expModules
+   return . nub $ graphModules ++ expModules
    where
    modulesWith sym = foldM (hasSym sym) []
 
