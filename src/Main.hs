@@ -68,4 +68,4 @@ doType = doFileCommand "type" $
 
 doFindSymbol :: FilePath -> HDevTools -> IO ()
 doFindSymbol sock args =
-    serverCommand sock (CmdFindSymbol (symbol args) (file args)) (ghcOpts args)
+    serverCommand sock (CmdFindSymbol (symbol args) (files args)) (ghcOpts args)

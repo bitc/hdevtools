@@ -169,10 +169,10 @@ runCommand state clientSend (CmdType file (line, col)) = do
             , show endCol , " "
             , "\"", t, "\""
             ]
-runCommand state clientSend (CmdFindSymbol symbol file) = do
+runCommand state clientSend (CmdFindSymbol symbol files) = do
     let noPhase = Nothing
-    target <- GHC.guessTarget file noPhase
-    GHC.setTargets [target]
+    targets <- mapM (flip GHC.guessTarget noPhase) files
+    GHC.setTargets targets
     let handler err = GHC.printException err >> return GHC.Failed
     _ <- GHC.handleSourceError handler (GHC.load GHC.LoadAllTargets)
 
