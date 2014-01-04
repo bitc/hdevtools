@@ -170,22 +170,7 @@ runCommand state clientSend (CmdType file (line, col)) = do
             , "\"", t, "\""
             ]
 runCommand state clientSend (CmdFindSymbol symbol files) = do
-    -- for the findsymbol command GHC shouldn't output any warnings
-    -- or errors to stdout for the loaded source files, we're only
-    -- interested in the module graph of the loaded targets
-    dynFlags <- GHC.getSessionDynFlags
-    _        <- GHC.setSessionDynFlags dynFlags { GHC.log_action = \_ _ _ _ _ -> return () }
-
-    let noPhase = Nothing
-    targets <- mapM (flip GHC.guessTarget noPhase) files
-    GHC.setTargets targets
-    let handler err = GHC.printException err >> return GHC.Failed
-    _ <- GHC.handleSourceError handler (GHC.load GHC.LoadAllTargets)
-
-    -- reset the old log_action
-    _ <- GHC.setSessionDynFlags dynFlags
-
-    result <- withWarnings state False $ findSymbol symbol
+    result <- withWarnings state False $ findSymbol symbol files
     case result of
         []      -> liftIO $ mapM_ clientSend
                        [ ClientStderr $ "Couldn't find modules containing '" ++ symbol ++ "'"
