@@ -174,7 +174,7 @@ pretty :: GHC.Type -> String
 pretty =
 #endif
 #if __GLASGOW_HASKELL__ >= 708
-    Pretty.showDoc Pretty.OneLineMode 1
+    Pretty.showDoc Pretty.OneLineMode 0
 #else
     Pretty.showDocWith Pretty.OneLineMode
 #endif
