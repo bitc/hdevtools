@@ -10,7 +10,7 @@ import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
 import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
 
-import CommandLoop (newCommandLoopState, startCommandLoop)
+import CommandLoop (newCommandLoopState, Config, newConfig, startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
 import Util (readMaybe)
 
@@ -33,7 +33,8 @@ startServer socketPath mbSock = do
     go sock = do
         state <- newCommandLoopState
         currentClient <- newIORef Nothing
-        startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
+        config <- newConfig []
+        startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) config Nothing
 
     removeSocketFile :: IO ()
     removeSocketFile = do
@@ -54,7 +55,7 @@ clientSend currentClient clientDirective = do
     ignoreEPipe = handleJust (guard . isEPipe) (const $ return ())
     isEPipe = (==ResourceVanished) . ioeGetErrorType
 
-getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, [String]))
+getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, Config))
 getNextCommand currentClient sock = do
     checkCurrent <- readIORef currentClient
     case checkCurrent of
@@ -70,7 +71,8 @@ getNextCommand currentClient sock = do
                 "The client sent an invalid message to the server: " ++ show msg
             getNextCommand currentClient sock
         Just (SrvCommand cmd ghcOpts) -> do
-            return $ Just (cmd, ghcOpts)
+            config <- newConfig ghcOpts
+            return $ Just (cmd, config)
         Just SrvStatus -> do
             mapM_ (clientSend currentClient) $
                 [ ClientStdout "Server is running."
