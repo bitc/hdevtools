@@ -49,7 +49,7 @@ clientSend currentClient clientDirective = do
         Just h -> ignoreEPipe $ do
             hPutStrLn h (show clientDirective)
             hFlush h
-        Nothing -> error "This is impossible"
+        Nothing -> return ()
     where
     -- EPIPE means that the client is no longer there.
     ignoreEPipe = handleJust (guard . isEPipe) (const $ return ())

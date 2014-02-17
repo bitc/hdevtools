@@ -2,10 +2,10 @@ module Cabal
   ( getPackageGhcOpts
   ) where
 
+import Control.Exception (IOException, catch)
 import Data.Char (isSpace)
 import Data.List (foldl', nub, isPrefixOf)
 import Data.Monoid (Monoid(..))
-
 import Distribution.PackageDescription (Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
 import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Configure (configure)
@@ -20,6 +20,7 @@ import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags)
 import Distribution.Verbosity (silent)
 import Distribution.Version (Version(..))
 
+import System.IO.Error (ioeGetErrorString)
 import System.Directory (doesFileExist)
 import System.FilePath (takeDirectory, splitFileName, (</>))
 
@@ -51,35 +52,39 @@ getComponentLocalBuildInfo lbi (CBenchName name) =
 
 getPackageGhcOpts :: FilePath -> IO (Either String [String])
 getPackageGhcOpts path = do
-    genPkgDescr <- readPackageDescription silent path
+    getPackageGhcOpts' `catch` (\e -> do
+        return $ Left $ "Cabal error: " ++ (ioeGetErrorString (e :: IOException)))
+  where
+    getPackageGhcOpts' :: IO (Either String [String])
+    getPackageGhcOpts' = do
+        genPkgDescr <- readPackageDescription silent path
 
-    let cfgFlags' = (defaultConfigFlags defaultProgramConfiguration)
+        let cfgFlags' = (defaultConfigFlags defaultProgramConfiguration)
 
-    let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
-    exists <- doesFileExist sandboxConfig
+        let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
+        exists <- doesFileExist sandboxConfig
 
-    cfgFlags <- case exists of
-                     False -> return cfgFlags'
-                     True -> do
-                         sandboxPackageDb <- getSandboxPackageDB sandboxConfig
-                         return $ cfgFlags'
-                                      { configPackageDBs = [Just $ sandboxPackageDb]
-                                      }
+        cfgFlags <- case exists of
+                         False -> return cfgFlags'
+                         True -> do
+                             sandboxPackageDb <- getSandboxPackageDB sandboxConfig
+                             return $ cfgFlags'
+                                          { configPackageDBs = [Just $ sandboxPackageDb]
+                                          }
 
-    localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
-    let baseDir = fst . splitFileName $ path
-    case getGhcVersion localBuildInfo of
-        Nothing -> return $ Left "GHC is not configured"
-        Just ghcVersion -> do
-            let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
-                -- FIX bug in GhcOptions' `mappend`
-                ghcOpts = ghcOpts' { ghcOptPackageDBs = nub (ghcOptPackageDBs ghcOpts')
-                                   , ghcOptPackages = nub (ghcOptPackages ghcOpts')
-                                   , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
-                                   }
-            return $ Right $ renderGhcOptions ghcVersion ghcOpts
+        localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
+        let baseDir = fst . splitFileName $ path
+        case getGhcVersion localBuildInfo of
+            Nothing -> return $ Left "GHC is not configured"
+            Just ghcVersion -> do
+                let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
+                    -- FIX bug in GhcOptions' `mappend`
+                    ghcOpts = ghcOpts' { ghcOptPackageDBs = nub (ghcOptPackageDBs ghcOpts')
+                                       , ghcOptPackages = nub (ghcOptPackages ghcOpts')
+                                       , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
+                                       }
+                return $ Right $ renderGhcOptions ghcVersion ghcOpts
 
-    where
     getComponentGhcOptions :: LocalBuildInfo -> Component -> GhcOptions
     getComponentGhcOptions lbi comp =
         componentGhcOptions silent lbi bi clbi (buildDir lbi)
