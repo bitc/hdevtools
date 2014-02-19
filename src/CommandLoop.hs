@@ -9,7 +9,7 @@ module CommandLoop
 
 import Control.Monad (when)
 import Data.IORef
-import Data.List (find, isSuffixOf)
+import Data.List (find)
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 import qualified ErrUtils
@@ -17,14 +17,13 @@ import qualified Exception (ExceptionMonad)
 import qualified GHC
 import qualified GHC.Paths
 import qualified Outputable
-import System.Directory (getCurrentDirectory, getDirectoryContents)
-import System.FilePath ((</>))
+import System.Directory (getCurrentDirectory)
 import System.Posix.Types (EpochTime)
 import System.Posix.Files (getFileStatus, modificationTime)
 
 import Types (ClientDirective(..), Command(..))
 import Info (getIdentifierInfo, getType)
-import Cabal (getPackageGhcOpts)
+import Cabal (getPackageGhcOpts, findCabalFile)
 
 type ClientSend = ClientDirective -> IO ()
 
@@ -59,7 +58,7 @@ data Config = Config
 
 newConfig :: [String] -> IO Config
 newConfig ghcOpts = do
-    mbCabalFile <- findCabalFile
+    mbCabalFile <- getCurrentDirectory >>= findCabalFile
     mbCabalConfig <- maybe (return Nothing) (fmap Just . mkCabalConfig) mbCabalFile
     return $ Config { configGhcOpts = ghcOpts
                     , configCabal = mbCabalConfig
@@ -250,15 +249,3 @@ logActionSend state clientSend severity out = do
     isWarning :: GHC.Severity -> Bool
     isWarning GHC.SevWarning = True
     isWarning _ = False
-
-findCabalFile :: IO (Maybe FilePath)
-findCabalFile = do
-    curDir <- getCurrentDirectory
-    allFiles <- getDirectoryContents curDir
-    return $ fmap (curDir </>) $ find (isCabalFile) allFiles
-
-    where
-    isCabalFile :: FilePath -> Bool
-    isCabalFile path = cabalExtension `isSuffixOf` path
-                    && length path > length cabalExtension
-        where cabalExtension = ".cabal"

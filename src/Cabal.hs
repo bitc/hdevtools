@@ -1,10 +1,11 @@
 module Cabal
   ( getPackageGhcOpts
+  , findCabalFile
   ) where
 
 import Control.Exception (IOException, catch)
 import Data.Char (isSpace)
-import Data.List (foldl', nub, isPrefixOf)
+import Data.List (foldl', nub, sort, find, isPrefixOf, isSuffixOf)
 import Data.Monoid (Monoid(..))
 import Distribution.PackageDescription (Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
 import Distribution.PackageDescription.Parse (readPackageDescription)
@@ -16,12 +17,12 @@ import Distribution.Simple.Program (defaultProgramConfiguration)
 import Distribution.Simple.Program.Db (lookupProgram)
 import Distribution.Simple.Program.Types (ConfiguredProgram(programVersion), simpleProgram)
 import Distribution.Simple.Program.GHC (GhcOptions(..), renderGhcOptions)
-import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags)
+import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags, toFlag)
 import Distribution.Verbosity (silent)
 import Distribution.Version (Version(..))
 
 import System.IO.Error (ioeGetErrorString)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (takeDirectory, splitFileName, (</>))
 
 componentName :: Component -> ComponentName
@@ -60,6 +61,10 @@ getPackageGhcOpts path = do
         genPkgDescr <- readPackageDescription silent path
 
         let cfgFlags' = (defaultConfigFlags defaultProgramConfiguration)
+                            { configDistPref = toFlag $ takeDirectory path </> "dist"
+                            -- TODO: figure out how to find out this flag
+                            , configUserInstall = toFlag True
+                            }
 
         let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
         exists <- doesFileExist sandboxConfig
@@ -69,7 +74,7 @@ getPackageGhcOpts path = do
                          True -> do
                              sandboxPackageDb <- getSandboxPackageDB sandboxConfig
                              return $ cfgFlags'
-                                          { configPackageDBs = [Just $ sandboxPackageDb]
+                                          { configPackageDBs = [Just sandboxPackageDb]
                                           }
 
         localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
@@ -79,7 +84,7 @@ getPackageGhcOpts path = do
             Just ghcVersion -> do
                 let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
                     -- FIX bug in GhcOptions' `mappend`
-                    ghcOpts = ghcOpts' { ghcOptPackageDBs = nub (ghcOptPackageDBs ghcOpts')
+                    ghcOpts = ghcOpts' { ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
                                        , ghcOptPackages = nub (ghcOptPackages ghcOpts')
                                        , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
                                        }
@@ -105,3 +110,23 @@ getPackageGhcOpts path = do
         pkgDbKey = "package-db:"
         parse = head . filter (pkgDbKey `isPrefixOf`) . lines
         extractValue = fst . break isSpace . dropWhile isSpace . drop (length pkgDbKey)
+
+
+findCabalFile :: FilePath -> IO (Maybe FilePath)
+findCabalFile dir = do
+    allFiles <- getDirectoryContents dir
+    let mbCabalFile = find (isCabalFile) allFiles
+    case mbCabalFile of
+      Just cabalFile -> return $ Just $ dir </> cabalFile
+      Nothing ->
+        let parentDir = takeDirectory dir
+         in if parentDir == dir
+            then return Nothing
+            else findCabalFile parentDir
+
+  where
+
+    isCabalFile :: FilePath -> Bool
+    isCabalFile path = cabalExtension `isSuffixOf` path
+                    && length path > length cabalExtension
+        where cabalExtension = ".cabal"

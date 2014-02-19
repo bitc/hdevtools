@@ -1,25 +1,42 @@
 module Main where
 
+import System.Directory (getCurrentDirectory)
 import System.Environment (getProgName)
 import System.IO (hPutStrLn, stderr)
+import System.FilePath ((</>), isAbsolute, takeDirectory)
 
+import Cabal (findCabalFile)
 import Client (getServerStatus, serverCommand, stopServer)
 import CommandArgs
 import Daemonize (daemonize)
 import Server (startServer, createListenSocket)
 import Types (Command(..))
 
-defaultSocketFilename :: FilePath
-defaultSocketFilename = ".hdevtools.sock"
+absoluteFilePath :: FilePath -> IO FilePath
+absoluteFilePath path = if isAbsolute path then return path else do
+    dir <- getCurrentDirectory
+    return $ dir </> path
 
-getSocketFilename :: Maybe FilePath -> FilePath
-getSocketFilename Nothing = defaultSocketFilename
-getSocketFilename (Just f) = f
+
+defaultSocketPath :: IO FilePath
+defaultSocketPath = do
+    mbCabalFile <- getCurrentDirectory >>= findCabalFile
+    case mbCabalFile of
+        Nothing -> return socketFile
+        Just cabalFile -> return $ takeDirectory cabalFile </> socketFile
+
+  where socketFile :: FilePath
+        socketFile = ".hdevtools.sock"
+
+
+getSocketFilename :: Maybe FilePath -> IO FilePath
+getSocketFilename Nothing = defaultSocketPath
+getSocketFilename (Just f) = return f
 
 main :: IO ()
 main = do
     args <- loadHDevTools
-    let sock = getSocketFilename (socket args)
+    sock <- getSocketFilename (socket args)
     case args of
         Admin {} -> doAdmin sock args
         Check {} -> doCheck sock args
@@ -51,7 +68,10 @@ doFileCommand cmdName cmd sock args
         progName <- getProgName
         hPutStrLn stderr "You must provide a haskell source file. See:"
         hPutStrLn stderr $ progName ++ " " ++ cmdName ++ " --help"
-    | otherwise = serverCommand sock (cmd args) (ghcOpts args)
+    | otherwise = do
+        absFile <- absoluteFilePath $ file args
+        let args' = args { file = absFile }
+        serverCommand sock (cmd args') (ghcOpts args')
 
 doCheck :: FilePath -> HDevTools -> IO ()
 doCheck = doFileCommand "check" $
