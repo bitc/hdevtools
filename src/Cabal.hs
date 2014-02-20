@@ -7,7 +7,8 @@ import Control.Exception (IOException, catch)
 import Data.Char (isSpace)
 import Data.List (foldl', nub, sort, find, isPrefixOf, isSuffixOf)
 import Data.Monoid (Monoid(..))
-import Distribution.PackageDescription (Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
+import Distribution.Package (PackageIdentifier(..), PackageName)
+import Distribution.PackageDescription (PackageDescription(..), Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
 import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Configure (configure)
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), ComponentLocalBuildInfo(..), Component(..), ComponentName(..), allComponentsBy, componentBuildInfo, foldComponent)
@@ -78,17 +79,30 @@ getPackageGhcOpts path = do
                                           }
 
         localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
+
+        let pkgDescr = localPkgDescr localBuildInfo
         let baseDir = fst . splitFileName $ path
         case getGhcVersion localBuildInfo of
             Nothing -> return $ Left "GHC is not configured"
             Just ghcVersion -> do
+                let mbLibName = pkgLibName pkgDescr
+
                 let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
                     -- FIX bug in GhcOptions' `mappend`
                     ghcOpts = ghcOpts' { ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
-                                       , ghcOptPackages = nub (ghcOptPackages ghcOpts')
+                                       , ghcOptPackages = filter (\(_, pkgId) -> Just (pkgName pkgId) /= mbLibName) $ nub (ghcOptPackages ghcOpts')
                                        , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
                                        }
+
                 return $ Right $ renderGhcOptions ghcVersion ghcOpts
+
+    pkgLibName :: PackageDescription -> Maybe PackageName
+    pkgLibName pkgDescr = if hasLibrary pkgDescr
+                          then Just $ pkgName . package $ pkgDescr
+                          else Nothing
+
+    hasLibrary :: PackageDescription -> Bool
+    hasLibrary = maybe False (\_ -> True) . library
 
     getComponentGhcOptions :: LocalBuildInfo -> Component -> GhcOptions
     getComponentGhcOptions lbi comp =
