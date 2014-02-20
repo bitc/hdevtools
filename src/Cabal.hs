@@ -89,7 +89,8 @@ getPackageGhcOpts path = do
 
                 let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
                     -- FIX bug in GhcOptions' `mappend`
-                    ghcOpts = ghcOpts' { ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
+                    ghcOpts = ghcOpts' { ghcOptExtra = filter (/= "-Werror") $ nub $ ghcOptExtra ghcOpts'
+                                       , ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
                                        , ghcOptPackages = filter (\(_, pkgId) -> Just (pkgName pkgId) /= mbLibName) $ nub (ghcOptPackages ghcOpts')
                                        , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
                                        }
