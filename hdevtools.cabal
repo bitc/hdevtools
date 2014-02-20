@@ -59,7 +59,6 @@ executable hdevtools
                        Util,
                        Paths_hdevtools
   build-depends:       base == 4.*,
-                       Cabal == 1.16.*,
                        cmdargs,
                        directory,
                        filepath,
@@ -69,3 +68,7 @@ executable hdevtools
                        network,
                        time,
                        unix
+
+  if impl(ghc == 7.6.*)
+    build-depends:     Cabal == 1.16.*
+    cpp-options:       -DENABLE_CABAL

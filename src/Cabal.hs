@@ -1,7 +1,10 @@
+{-# LANGUAGE CPP #-}
 module Cabal
   ( getPackageGhcOpts
   , findCabalFile
   ) where
+
+#ifdef ENABLE_CABAL
 
 import Control.Exception (IOException, catch)
 import Data.Char (isSpace)
@@ -145,3 +148,13 @@ findCabalFile dir = do
     isCabalFile path = cabalExtension `isSuffixOf` path
                     && length path > length cabalExtension
         where cabalExtension = ".cabal"
+
+# else
+
+getPackageGhcOpts :: FilePath -> IO (Either String [String])
+getPackageGhcOpts _ = return $ Right []
+
+findCabalFile :: FilePath -> IO (Maybe FilePath)
+findCabalFile _ = return Nothing
+
+#endif
