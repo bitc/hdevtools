@@ -18,9 +18,9 @@ absoluteFilePath path = if isAbsolute path then return path else do
     return $ dir </> path
 
 
-defaultSocketPath :: IO FilePath
-defaultSocketPath = do
-    mbCabalFile <- getCurrentDirectory >>= findCabalFile
+defaultSocketPathForDir :: FilePath -> IO FilePath
+defaultSocketPathForDir dir = do
+    mbCabalFile <- findCabalFile dir
     case mbCabalFile of
         Nothing -> return socketFile
         Just cabalFile -> return $ takeDirectory cabalFile </> socketFile
@@ -29,14 +29,19 @@ defaultSocketPath = do
         socketFile = ".hdevtools.sock"
 
 
-getSocketFilename :: Maybe FilePath -> IO FilePath
-getSocketFilename Nothing = defaultSocketPath
-getSocketFilename (Just f) = return f
+fileArg :: HDevTools -> Maybe String
+fileArg (Admin {})      = Nothing
+fileArg (ModuleFile {}) = Nothing
+fileArg args@(Check {}) = Just $ file args
+fileArg args@(Info  {}) = Just $ file args
+fileArg args@(Type  {}) = Just $ file args
+
 
 main :: IO ()
 main = do
     args <- loadHDevTools
-    sock <- getSocketFilename (socket args)
+    dir  <- maybe getCurrentDirectory (return . takeDirectory) $ fileArg args
+    sock <- maybe (defaultSocketPathForDir dir) return (socket args)
     case args of
         Admin {} -> doAdmin sock args
         Check {} -> doCheck sock args
