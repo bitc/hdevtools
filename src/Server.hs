@@ -11,7 +11,7 @@ import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
 import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
 
 import CommandLoop (newCommandLoopState, Config, newConfig, startCommandLoop)
-import Types (ClientDirective(..), Command, ServerDirective(..))
+import Types (ClientDirective(..), Command, emptyCommandExtra, ServerDirective(..))
 import Util (readMaybe)
 
 createListenSocket :: FilePath -> IO Socket
@@ -33,7 +33,7 @@ startServer socketPath mbSock = do
     go sock = do
         state <- newCommandLoopState
         currentClient <- newIORef Nothing
-        config <- newConfig []
+        config <- newConfig emptyCommandExtra
         startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) config Nothing
 
     removeSocketFile :: IO ()
@@ -70,8 +70,8 @@ getNextCommand currentClient sock = do
             clientSend currentClient $ ClientUnexpectedError $
                 "The client sent an invalid message to the server: " ++ show msg
             getNextCommand currentClient sock
-        Just (SrvCommand cmd ghcOpts) -> do
-            config <- newConfig ghcOpts
+        Just (SrvCommand cmd cmdExtra) -> do
+            config <- newConfig cmdExtra
             return $ Just (cmd, config)
         Just SrvStatus -> do
             mapM_ (clientSend currentClient) $

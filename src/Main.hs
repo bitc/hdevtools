@@ -1,5 +1,7 @@
 module Main where
 
+import Data.Maybe (fromMaybe)
+import Data.Traversable (Traversable(..))
 import System.Directory (getCurrentDirectory)
 import System.Environment (getProgName)
 import System.IO (hPutStrLn, stderr)
@@ -10,7 +12,7 @@ import Client (getServerStatus, serverCommand, stopServer)
 import CommandArgs
 import Daemonize (daemonize)
 import Server (startServer, createListenSocket)
-import Types (Command(..))
+import Types (Command(..), CommandExtra(..), emptyCommandExtra)
 
 absoluteFilePath :: FilePath -> IO FilePath
 absoluteFilePath path = if isAbsolute path then return path else do
@@ -18,15 +20,8 @@ absoluteFilePath path = if isAbsolute path then return path else do
     return $ dir </> path
 
 
-defaultSocketPathForDir :: FilePath -> IO FilePath
-defaultSocketPathForDir dir = do
-    mbCabalFile <- findCabalFile dir
-    case mbCabalFile of
-        Nothing -> return socketFile
-        Just cabalFile -> return $ takeDirectory cabalFile </> socketFile
-
-  where socketFile :: FilePath
-        socketFile = ".hdevtools.sock"
+defaultSocketFile :: FilePath
+defaultSocketFile = ".hdevtools.sock"
 
 
 fileArg :: HDevTools -> Maybe String
@@ -41,16 +36,24 @@ main :: IO ()
 main = do
     args <- loadHDevTools
     dir  <- maybe getCurrentDirectory (return . takeDirectory) $ fileArg args
-    sock <- maybe (defaultSocketPathForDir dir) return (socket args)
-    case args of
-        Admin {} -> doAdmin sock args
-        Check {} -> doCheck sock args
-        ModuleFile {} -> doModuleFile sock args
-        Info {} -> doInfo sock args
-        Type {} -> doType sock args
+    mCabalFile <- findCabalFile dir >>= traverse absoluteFilePath
+    let extra = emptyCommandExtra
+                    { ceGhcOptions = ghcOpts args
+                    , ceCabalConfig = mCabalFile
+                    }
 
-doAdmin :: FilePath -> HDevTools -> IO ()
-doAdmin sock args
+    let defaultSocketPath = maybe "" takeDirectory mCabalFile </> defaultSocketFile
+    let sock = fromMaybe defaultSocketPath $ socket args
+
+    case args of
+        Admin {} -> doAdmin sock args extra
+        Check {} -> doCheck sock args extra
+        ModuleFile {} -> doModuleFile sock args extra
+        Info {} -> doInfo sock args extra
+        Type {} -> doType sock args extra
+
+doAdmin :: FilePath -> HDevTools -> CommandExtra -> IO ()
+doAdmin sock args _extra
     | start_server args =
         if noDaemon args then startServer sock Nothing
             else do
@@ -63,12 +66,12 @@ doAdmin sock args
         hPutStrLn stderr "You must provide a command. See:"
         hPutStrLn stderr $ progName ++ " --help"
 
-doModuleFile :: FilePath -> HDevTools -> IO ()
-doModuleFile sock args =
-    serverCommand sock (CmdModuleFile (module_ args)) (ghcOpts args)
+doModuleFile :: FilePath -> HDevTools -> CommandExtra -> IO ()
+doModuleFile sock args extra =
+    serverCommand sock (CmdModuleFile (module_ args)) extra
 
-doFileCommand :: String -> (HDevTools -> Command) -> FilePath -> HDevTools -> IO ()
-doFileCommand cmdName cmd sock args
+doFileCommand :: String -> (HDevTools -> Command) -> FilePath -> HDevTools -> CommandExtra -> IO ()
+doFileCommand cmdName cmd sock args extra
     | null (file args) = do
         progName <- getProgName
         hPutStrLn stderr "You must provide a haskell source file. See:"
@@ -76,16 +79,16 @@ doFileCommand cmdName cmd sock args
     | otherwise = do
         absFile <- absoluteFilePath $ file args
         let args' = args { file = absFile }
-        serverCommand sock (cmd args') (ghcOpts args')
+        serverCommand sock (cmd args') extra
 
-doCheck :: FilePath -> HDevTools -> IO ()
+doCheck :: FilePath -> HDevTools -> CommandExtra -> IO ()
 doCheck = doFileCommand "check" $
     \args -> CmdCheck (file args)
 
-doInfo :: FilePath -> HDevTools -> IO ()
+doInfo :: FilePath -> HDevTools -> CommandExtra -> IO ()
 doInfo = doFileCommand "info" $
     \args -> CmdInfo (file args) (identifier args)
 
-doType :: FilePath -> HDevTools -> IO ()
+doType :: FilePath -> HDevTools -> CommandExtra -> IO ()
 doType = doFileCommand "type" $
     \args -> CmdType (file args) (line args, col args)

@@ -13,7 +13,7 @@ import System.IO.Error (isDoesNotExistError)
 
 import Daemonize (daemonize)
 import Server (createListenSocket, startServer)
-import Types (ClientDirective(..), Command(..), ServerDirective(..))
+import Types (ClientDirective(..), Command(..), CommandExtra(..), ServerDirective(..))
 import Util (readMaybe)
 
 connect :: FilePath -> IO Handle
@@ -34,18 +34,18 @@ stopServer sock = do
     hFlush h
     startClientReadLoop h
 
-serverCommand :: FilePath -> Command -> [String] -> IO ()
-serverCommand sock cmd ghcOpts = do
+serverCommand :: FilePath -> Command -> CommandExtra -> IO ()
+serverCommand sock cmd cmdExtra = do
     r <- tryJust (guard . isDoesNotExistError) (connect sock)
     case r of
         Right h -> do
-            hPutStrLn h $ show (SrvCommand cmd ghcOpts)
+            hPutStrLn h $ show (SrvCommand cmd cmdExtra)
             hFlush h
             startClientReadLoop h
         Left _ -> do
             s <- createListenSocket sock
             daemonize False $ startServer sock (Just s)
-            serverCommand sock cmd ghcOpts
+            serverCommand sock cmd cmdExtra
 
 startClientReadLoop :: Handle -> IO ()
 startClientReadLoop h = do

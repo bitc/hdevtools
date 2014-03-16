@@ -10,20 +10,22 @@ module CommandLoop
 import Control.Monad (when)
 import Data.IORef
 import Data.List (find)
+import Data.Traversable (traverse)
 import MonadUtils (MonadIO, liftIO)
+import System.Directory (setCurrentDirectory)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
+import System.FilePath (takeDirectory)
 import qualified ErrUtils
 import qualified Exception (ExceptionMonad)
 import qualified GHC
 import qualified GHC.Paths
 import qualified Outputable
-import System.Directory (getCurrentDirectory)
 import System.Posix.Types (EpochTime)
 import System.Posix.Files (getFileStatus, modificationTime)
 
-import Types (ClientDirective(..), Command(..))
+import Types (ClientDirective(..), Command(..), CommandExtra(..))
 import Info (getIdentifierInfo, getType)
-import Cabal (getPackageGhcOpts, findCabalFile)
+import Cabal (getPackageGhcOpts)
 
 type ClientSend = ClientDirective -> IO ()
 
@@ -56,11 +58,10 @@ data Config = Config
     }
     deriving Eq
 
-newConfig :: [String] -> IO Config
-newConfig ghcOpts = do
-    mbCabalFile <- getCurrentDirectory >>= findCabalFile
-    mbCabalConfig <- maybe (return Nothing) (fmap Just . mkCabalConfig) mbCabalFile
-    return $ Config { configGhcOpts = ghcOpts
+newConfig :: CommandExtra -> IO Config
+newConfig cmdExtra = do
+    mbCabalConfig <- traverse mkCabalConfig $ ceCabalConfig cmdExtra
+    return $ Config { configGhcOpts = ceGhcOptions cmdExtra
                     , configCabal = mbCabalConfig
                     }
 
@@ -130,6 +131,7 @@ configSession state clientSend config = do
                       Nothing ->
                           return $ Right []
                       Just cabalConfig -> do
+                          liftIO $ setCurrentDirectory . takeDirectory $ cabalConfigPath cabalConfig
                           liftIO $ getPackageGhcOpts $ cabalConfigPath cabalConfig
 
     case eCabalGhcOpts of
