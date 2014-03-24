@@ -11,10 +11,15 @@ import Data.Char (isSpace)
 import Data.List (foldl', nub, sort, find, isPrefixOf, isSuffixOf)
 import Data.Monoid (Monoid(..))
 import Distribution.Package (PackageIdentifier(..), PackageName)
-import Distribution.PackageDescription (PackageDescription(..), Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
+import Distribution.PackageDescription (PackageDescription(..), Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo, buildable, libBuildInfo)
 import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Configure (configure)
-import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), ComponentLocalBuildInfo(..), Component(..), ComponentName(..), allComponentsBy, componentBuildInfo, foldComponent)
+import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), ComponentLocalBuildInfo(..),
+    Component(..), ComponentName(..),
+#if __GLASGOW_HASKELL__ < 707
+    allComponentsBy,
+#endif
+    componentBuildInfo, foldComponent)
 import Distribution.Simple.Compiler (PackageDB(..))
 import Distribution.Simple.GHC (componentGhcOptions)
 import Distribution.Simple.Program (defaultProgramConfiguration)
@@ -37,6 +42,12 @@ componentName =
                   (CBenchName . benchmarkName)
 
 getComponentLocalBuildInfo :: LocalBuildInfo -> ComponentName -> ComponentLocalBuildInfo
+#if __GLASGOW_HASKELL__ >= 707
+getComponentLocalBuildInfo lbi cname = getLocalBuildInfo cname $ componentsConfigs lbi
+    where getLocalBuildInfo cname' ((cname'', clbi, _):cfgs) =
+            if cname' == cname'' then clbi else getLocalBuildInfo cname' cfgs
+          getLocalBuildInfo _ [] = error $ "internal error: missing config"
+#else
 getComponentLocalBuildInfo lbi CLibName =
     case libraryConfig lbi of
         Nothing -> error $ "internal error: missing library config"
@@ -53,6 +64,30 @@ getComponentLocalBuildInfo lbi (CBenchName name) =
     case lookup name (testSuiteConfigs lbi) of
         Nothing -> error $ "internal error: missing config for benchmark " ++ name
         Just clbi -> clbi
+#endif
+
+#if __GLASGOW_HASKELL__ >= 707
+-- TODO: Fix callsites so we don't need `allComponentsBy`. It was taken from
+-- http://hackage.haskell.org/package/Cabal-1.16.0.3/docs/src/Distribution-Simple-LocalBuildInfo.html#allComponentsBy
+-- since it doesn't exist in Cabal 1.18.*
+--
+-- | Obtains all components (libs, exes, or test suites), transformed by the
+-- given function.  Useful for gathering dependencies with component context.
+allComponentsBy :: PackageDescription
+                -> (Component -> a)
+                -> [a]
+allComponentsBy pkg_descr f =
+    [ f (CLib  lib) | Just lib <- [library pkg_descr]
+                    , buildable (libBuildInfo lib) ]
+ ++ [ f (CExe  exe) | exe <- executables pkg_descr
+                    , buildable (buildInfo exe) ]
+ ++ [ f (CTest tst) | tst <- testSuites pkg_descr
+                    , buildable (testBuildInfo tst)
+                    , testEnabled tst ]
+ ++ [ f (CBench bm) | bm <- benchmarks pkg_descr
+                    , buildable (benchmarkBuildInfo bm)
+                    , benchmarkEnabled bm ]
+#endif
 
 
 getPackageGhcOpts :: FilePath -> IO (Either String [String])
