@@ -24,11 +24,22 @@ programVersion =
     "unknown-version (not built with cabal)"
 #endif
 
+cabalVersion :: String
+cabalVersion =
+#ifdef ENABLE_CABAL
+    "cabal-" ++ VERSION_Cabal
+#else
+    "no cabal support"
+#endif
+
 fullVersion :: String
 fullVersion =
     concat
         [ programVersion
-        , " (ghc-", Config.cProjectVersion, "-", arch, "-", os, ")"
+        , " ("
+        , "ghc-", Config.cProjectVersion, "-", arch, "-", os
+        , ", ", cabalVersion
+        , ")"
         ]
 
 data HDevTools
