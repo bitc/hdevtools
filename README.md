@@ -70,7 +70,7 @@ details.
 ### Emacs - [flycheck][5] ###
 
 [Flycheck][5] is a modern batteries-included
-syntax checker for Emacs, and as of July 1013 it includes support for `hdevtools`.
+syntax checker for Emacs, and there is a [flycheck-hdevtools][6] checker available.
 
 ### Manual Editor Integration for any Editor ###
 
@@ -180,4 +180,5 @@ client-server architecture it is much faster.
 [2]: https://github.com/scrooloose/syntastic
 [3]: https://github.com/bitc/vim-hdevtools
 [4]: http://www.mew.org/~kazu/proj/ghc-mod/en/
-[5]: https://github.com/lunaryorn/flycheck
+[5]: https://github.com/flycheck/flycheck
+[6]: https://github.com/flycheck/flycheck-hdevtools
