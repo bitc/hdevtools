@@ -16,6 +16,9 @@ import qualified Desugar
 #if __GLASGOW_HASKELL__ >= 706
 import qualified DynFlags
 #endif
+#if __GLASGOW_HASKELL__ >= 708
+import qualified HsExpr
+#endif
 import qualified GHC
 import qualified HscTypes
 import qualified NameSet
@@ -127,13 +130,22 @@ getSrcSpan (GHC.RealSrcSpan spn) =
 getSrcSpan _ = Nothing
 
 getTypeLHsBind :: GHC.TypecheckedModule -> GHC.LHsBind GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
+#if __GLASGOW_HASKELL__ >= 708
+getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = HsExpr.MG _ _ typ _}) = return $ Just (spn, typ)
+#else
 getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = GHC.MatchGroup _ typ}) = return $ Just (spn, typ)
+#endif
 getTypeLHsBind _ _ = return Nothing
 
 getTypeLHsExpr :: GHC.TypecheckedModule -> GHC.LHsExpr GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
 getTypeLHsExpr tcm e = do
     hs_env <- GHC.getSession
+#if __GLASGOW_HASKELL__ >= 708
+    let fm_inst_env = TcRnTypes.tcg_fam_inst_env $ fst $ GHC.tm_internals_ tcm
+    (_, mbe) <- liftIO $ Desugar.deSugarExpr hs_env e
+#else
     (_, mbe) <- liftIO $ Desugar.deSugarExpr hs_env modu rn_env ty_env e
+#endif
     return ()
     case mbe of
         Nothing -> return Nothing
@@ -161,14 +173,22 @@ pretty dflags =
 pretty :: GHC.Type -> String
 pretty =
 #endif
+#if __GLASGOW_HASKELL__ >= 708
+    Pretty.showDoc Pretty.OneLineMode 0
+#else
     Pretty.showDocWith Pretty.OneLineMode
+#endif
 #if __GLASGOW_HASKELL__ >= 706
     . Outputable.withPprStyleDoc dflags
 #else
     . Outputable.withPprStyleDoc
 #endif
         (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
+#if __GLASGOW_HASKELL__ >= 708
+    . PprTyThing.pprTypeForUser
+#else
     . PprTyThing.pprTypeForUser False
+#endif
 
 ------------------------------------------------------------------------------
 -- The following was taken from 'ghc-syb-utils'
@@ -198,8 +218,13 @@ everythingStaged stage k z f x
 infoThing :: String -> GHC.Ghc String
 infoThing str = do
     names <- GHC.parseName str
+#if __GLASGOW_HASKELL__ >= 708
+    mb_stuffs <- mapM (GHC.getInfo False) names
+    let filtered = filterOutChildren (\(t,_f,_i,_) -> t) (catMaybes mb_stuffs)
+#else
     mb_stuffs <- mapM GHC.getInfo names
     let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
+#endif
     unqual <- GHC.getPrintUnqual
 #if __GLASGOW_HASKELL__ >= 706
     dflags <- DynFlags.getDynFlags
@@ -207,7 +232,11 @@ infoThing str = do
 #else
     return $ Outputable.showSDocForUser unqual $
 #endif
+#if __GLASGOW_HASKELL__ >= 708
+        Outputable.vcat (intersperse (Outputable.text "") $ map pprInfo filtered)
+#else
         Outputable.vcat (intersperse (Outputable.text "") $ map (pprInfo False) filtered)
+#endif
 
   -- Filter out names whose parent is also there Good
   -- example is '[]', which is both a type and data
@@ -225,13 +254,19 @@ filterOutChildren get_thing xs
                      Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
                      Nothing -> False
 
-#if __GLASGOW_HASKELL__ >= 706
+#if __GLASGOW_HASKELL__ >= 708
+pprInfo :: (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst], [GHC.FamInst]) -> Outputable.SDoc
+pprInfo (thing, fixity, insts, _) =
+    PprTyThing.pprTyThingInContextLoc thing
+#elif __GLASGOW_HASKELL__ >= 706
 pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst]) -> Outputable.SDoc
-#else
-pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.Instance]) -> Outputable.SDoc
-#endif
 pprInfo pefas (thing, fixity, insts) =
     PprTyThing.pprTyThingInContextLoc pefas thing
+#else
+pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.Instance]) -> Outputable.SDoc
+pprInfo pefas (thing, fixity, insts) =
+    PprTyThing.pprTyThingInContextLoc pefas thing
+#endif
         Outputable.$$ show_fixity fixity
         Outputable.$$ Outputable.vcat (map GHC.pprInstance insts)
     where

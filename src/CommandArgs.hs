@@ -62,6 +62,12 @@ data HDevTools
         , line :: Int
         , col :: Int
         }
+    | FindSymbol
+        { socket :: Maybe FilePath
+        , ghcOpts :: [String]
+        , symbol :: String
+        , files :: [String]
+        }
     deriving (Show, Data, Typeable)
 
 dummyAdmin :: HDevTools
@@ -104,6 +110,14 @@ dummyType = Type
     , col = 0
     }
 
+dummyFindSymbol :: HDevTools
+dummyFindSymbol = FindSymbol
+    { socket = Nothing
+    , ghcOpts = []
+    , symbol = ""
+    , files = []
+    }
+
 admin :: Annotate Ann
 admin = record dummyAdmin
     [ socket   := def += typFile += help "socket file to use"
@@ -144,8 +158,16 @@ type_ = record dummyType
     , col      := def += typ "COLUMN" += argPos 2
     ] += help "Get the type of the expression at the specified line and column"
 
+findSymbol :: Annotate Ann
+findSymbol = record dummyFindSymbol
+    [ socket   := def += typFile += help "socket file to use"
+    , ghcOpts  := def += typ "OPTION" += help "ghc options"
+    , symbol   := def += typ "SYMBOL" += argPos 0
+    , files    := def += typFile += args
+    ] += help "Find the modules where the given symbol is defined"
+
 full :: String -> Annotate Ann
-full progName = modes_ [admin += auto, check, moduleFile, info, type_]
+full progName = modes_ [admin += auto, check, moduleFile, info, type_, findSymbol]
         += helpArg [name "h", groupname "Help"]
         += versionArg [groupname "Help"]
         += program progName
