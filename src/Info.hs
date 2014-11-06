@@ -127,13 +127,13 @@ getSrcSpan (GHC.RealSrcSpan spn) =
 getSrcSpan _ = Nothing
 
 getTypeLHsBind :: GHC.TypecheckedModule -> GHC.LHsBind GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
-getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = GHC.MatchGroup _ typ}) = return $ Just (spn, typ)
+getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = GHC.MG _ _ typ _}) = return $ Just (spn, typ)
 getTypeLHsBind _ _ = return Nothing
 
 getTypeLHsExpr :: GHC.TypecheckedModule -> GHC.LHsExpr GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
 getTypeLHsExpr tcm e = do
     hs_env <- GHC.getSession
-    (_, mbe) <- liftIO $ Desugar.deSugarExpr hs_env modu rn_env ty_env e
+    (_, mbe) <- liftIO $ Desugar.deSugarExpr hs_env e
     return ()
     case mbe of
         Nothing -> return Nothing
@@ -161,14 +161,14 @@ pretty dflags =
 pretty :: GHC.Type -> String
 pretty =
 #endif
-    Pretty.showDocWith Pretty.OneLineMode
+    Pretty.showDoc Pretty.OneLineMode 0
 #if __GLASGOW_HASKELL__ >= 706
     . Outputable.withPprStyleDoc dflags
 #else
     . Outputable.withPprStyleDoc
 #endif
         (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
-    . PprTyThing.pprTypeForUser False
+    . PprTyThing.pprTypeForUser
 
 ------------------------------------------------------------------------------
 -- The following was taken from 'ghc-syb-utils'
@@ -198,8 +198,8 @@ everythingStaged stage k z f x
 infoThing :: String -> GHC.Ghc String
 infoThing str = do
     names <- GHC.parseName str
-    mb_stuffs <- mapM GHC.getInfo names
-    let filtered = filterOutChildren (\(t,_f,_i) -> t) (catMaybes mb_stuffs)
+    mb_stuffs <- mapM (GHC.getInfo True) names
+    let filtered = filterOutChildren (\(t,_f,_i,_x) -> t) (catMaybes mb_stuffs)
     unqual <- GHC.getPrintUnqual
 #if __GLASGOW_HASKELL__ >= 706
     dflags <- DynFlags.getDynFlags
@@ -207,7 +207,7 @@ infoThing str = do
 #else
     return $ Outputable.showSDocForUser unqual $
 #endif
-        Outputable.vcat (intersperse (Outputable.text "") $ map (pprInfo False) filtered)
+        Outputable.vcat (intersperse (Outputable.text "") $ map pprInfo filtered)
 
   -- Filter out names whose parent is also there Good
   -- example is '[]', which is both a type and data
@@ -225,15 +225,12 @@ filterOutChildren get_thing xs
                      Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
                      Nothing -> False
 
-#if __GLASGOW_HASKELL__ >= 706
-pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst]) -> Outputable.SDoc
-#else
-pprInfo :: PprTyThing.PrintExplicitForalls -> (HscTypes.TyThing, GHC.Fixity, [GHC.Instance]) -> Outputable.SDoc
-#endif
-pprInfo pefas (thing, fixity, insts) =
-    PprTyThing.pprTyThingInContextLoc pefas thing
+pprInfo :: (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst], [GHC.FamInst]) -> Outputable.SDoc
+pprInfo (thing, fixity, insts, fams) =
+    PprTyThing.pprTyThingInContextLoc thing
         Outputable.$$ show_fixity fixity
         Outputable.$$ Outputable.vcat (map GHC.pprInstance insts)
+        Outputable.$$ Outputable.vcat (map GHC.pprFamInst fams)
     where
     show_fixity fix
         | fix == GHC.defaultFixity = Outputable.empty
