@@ -60,9 +60,16 @@ executable hdevtools
   build-depends:       base == 4.*,
                        cmdargs,
                        directory,
-                       ghc >= 7.2,
+                       ghc >= 7.8,
                        ghc-paths,
                        syb,
                        network,
-                       time,
+                       time
+
+  if os(windows)
+    build-depends:
+                       filepath,
+                       process
+  else
+    build-depends:
                        unix

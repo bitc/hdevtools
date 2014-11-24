@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Client
     ( getServerStatus
     , stopServer
@@ -6,7 +8,12 @@ module Client
 
 import Control.Exception (tryJust)
 import Control.Monad (guard)
-import Network (PortID(UnixSocket), connectTo)
+import Network (connectTo)
+#ifdef mingw32_HOST_OS
+import Network (PortID(PortNumber))
+#else
+import Network (PortID(UnixSocket))
+#endif
 import System.Exit (exitFailure, exitWith)
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn, stderr)
 import System.IO.Error (isDoesNotExistError)
@@ -14,11 +21,7 @@ import System.IO.Error (isDoesNotExistError)
 import Daemonize (daemonize)
 import Server (createListenSocket, startServer)
 import Types (ClientDirective(..), Command(..), ServerDirective(..))
-import Util (readMaybe)
-
-connect :: FilePath -> IO Handle
-connect sock = do
-    connectTo "" (UnixSocket sock)
+import Util (readMaybe, connect)
 
 getServerStatus :: FilePath -> IO ()
 getServerStatus sock = do
@@ -43,8 +46,7 @@ serverCommand sock cmd ghcOpts = do
             hFlush h
             startClientReadLoop h
         Left _ -> do
-            s <- createListenSocket sock
-            daemonize False $ startServer sock (Just s)
+            daemonize False sock
             serverCommand sock cmd ghcOpts
 
 startClientReadLoop :: Handle -> IO ()

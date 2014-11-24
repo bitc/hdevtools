@@ -1,22 +1,25 @@
-module Server where
+{-# LANGUAGE CPP #-}
+
+module Server
+    ( startServer
+    , createListenSocket
+    , clientSend
+    , getNextCommand
+    ) where
 
 import Control.Exception (bracket, finally, handleJust, tryJust)
 import Control.Monad (guard)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import GHC.IO.Exception (IOErrorType(ResourceVanished))
-import Network (PortID(UnixSocket), Socket, accept, listenOn, sClose)
-import System.Directory (removeFile)
+import Network (Socket, accept, listenOn, sClose)
+import System.Directory (removeFile, getCurrentDirectory)
 import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
 import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
 
 import CommandLoop (newCommandLoopState, startCommandLoop)
 import Types (ClientDirective(..), Command, ServerDirective(..))
-import Util (readMaybe)
-
-createListenSocket :: FilePath -> IO Socket
-createListenSocket socketPath =
-    listenOn (UnixSocket socketPath)
+import Util (readMaybe, createListenSocket)
 
 startServer :: FilePath -> Maybe Socket -> IO ()
 startServer socketPath mbSock = do
@@ -72,8 +75,10 @@ getNextCommand currentClient sock = do
         Just (SrvCommand cmd ghcOpts) -> do
             return $ Just (cmd, ghcOpts)
         Just SrvStatus -> do
+            cwd <- getCurrentDirectory
             mapM_ (clientSend currentClient) $
                 [ ClientStdout "Server is running."
+                , ClientStdout ("Server CWD is " ++ cwd)
                 , ClientExit ExitSuccess
                 ]
             getNextCommand currentClient sock
