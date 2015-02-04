@@ -14,7 +14,7 @@ import Distribution.Package (PackageIdentifier(..), PackageName)
 import Distribution.PackageDescription (PackageDescription(..), Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
 import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Configure (configure)
-import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), ComponentLocalBuildInfo(..), Component(..), ComponentName(..), allComponentsBy, componentBuildInfo, foldComponent)
+import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), Component(..), ComponentName(..), componentBuildInfo, foldComponent)
 import Distribution.Simple.Compiler (PackageDB(..))
 import Distribution.Simple.GHC (componentGhcOptions)
 import Distribution.Simple.Program (defaultProgramConfiguration)
@@ -29,12 +29,14 @@ import System.IO.Error (ioeGetErrorString)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (takeDirectory, splitFileName, (</>))
 
-componentName :: Component -> ComponentName
-componentName =
-    foldComponent (const CLibName)
-                  (CExeName . exeName)
-                  (CTestName . testName)
-                  (CBenchName . benchmarkName)
+#if MIN_VERSION_Cabal(1, 18, 0)
+import Distribution.Simple.LocalBuildInfo (pkgComponents, getComponentLocalBuildInfo)
+#else
+import Distribution.Simple.LocalBuildInfo (ComponentLocalBuildInfo(..), allComponentsBy)
+
+pkgComponents :: PackageDescription -> [Component]
+pkgComponents = flip allComponentsBy id
+
 
 getComponentLocalBuildInfo :: LocalBuildInfo -> ComponentName -> ComponentLocalBuildInfo
 getComponentLocalBuildInfo lbi CLibName =
@@ -53,6 +55,15 @@ getComponentLocalBuildInfo lbi (CBenchName name) =
     case lookup name (testSuiteConfigs lbi) of
         Nothing -> error $ "internal error: missing config for benchmark " ++ name
         Just clbi -> clbi
+#endif
+
+
+componentName :: Component -> ComponentName
+componentName =
+    foldComponent (const CLibName)
+                  (CExeName . exeName)
+                  (CTestName . testName)
+                  (CBenchName . benchmarkName)
 
 
 getPackageGhcOpts :: FilePath -> IO (Either String [String])
@@ -90,7 +101,7 @@ getPackageGhcOpts path = do
             Just ghcVersion -> do
                 let mbLibName = pkgLibName pkgDescr
 
-                let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ flip allComponentsBy (\c -> c) . localPkgDescr $ localBuildInfo
+                let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ pkgComponents . localPkgDescr $ localBuildInfo
                     -- FIX bug in GhcOptions' `mappend`
                     ghcOpts = ghcOpts' { ghcOptExtra = filter (/= "-Werror") $ nub $ ghcOptExtra ghcOpts'
                                        , ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
