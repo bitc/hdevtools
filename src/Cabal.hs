@@ -7,6 +7,9 @@ module Cabal
 #ifdef ENABLE_CABAL
 
 import Control.Exception (IOException, catch)
+import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (execStateT, modify)
 import Data.Char (isSpace)
 import Data.List (foldl', nub, sort, find, isPrefixOf, isSuffixOf)
 import Data.Monoid (Monoid(..))
@@ -16,12 +19,13 @@ import Distribution.PackageDescription.Parse (readPackageDescription)
 import Distribution.Simple.Configure (configure)
 import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), Component(..), ComponentName(..), componentBuildInfo, foldComponent)
 import Distribution.Simple.Compiler (PackageDB(..))
+import Distribution.Simple.Command (CommandParse(..), commandParseArgs)
 import Distribution.Simple.GHC (componentGhcOptions)
 import Distribution.Simple.Program (defaultProgramConfiguration)
 import Distribution.Simple.Program.Db (lookupProgram)
 import Distribution.Simple.Program.Types (ConfiguredProgram(programVersion), simpleProgram)
 import Distribution.Simple.Program.GHC (GhcOptions(..), renderGhcOptions)
-import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags, toFlag)
+import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags, configureCommand, toFlag)
 import Distribution.Verbosity (silent)
 import Distribution.Version (Version(..))
 
@@ -66,8 +70,8 @@ componentName =
                   (CBenchName . benchmarkName)
 
 
-getPackageGhcOpts :: FilePath -> IO (Either String [String])
-getPackageGhcOpts path = do
+getPackageGhcOpts :: FilePath -> [String] -> IO (Either String [String])
+getPackageGhcOpts path opts = do
     getPackageGhcOpts' `catch` (\e -> do
         return $ Left $ "Cabal error: " ++ (ioeGetErrorString (e :: IOException)))
   where
@@ -75,22 +79,26 @@ getPackageGhcOpts path = do
     getPackageGhcOpts' = do
         genPkgDescr <- readPackageDescription silent path
 
-        let cfgFlags' = (defaultConfigFlags defaultProgramConfiguration)
-                            { configDistPref = toFlag $ takeDirectory path </> "dist"
-                            -- TODO: figure out how to find out this flag
-                            , configUserInstall = toFlag True
-                            }
+        let programCfg = defaultProgramConfiguration
+        let initCfgFlags = (defaultConfigFlags programCfg)
+                             { configDistPref = toFlag $ takeDirectory path </> "dist"
+                             -- TODO: figure out how to find out this flag
+                             , configUserInstall = toFlag True
+                             }
 
-        let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
-        exists <- doesFileExist sandboxConfig
+        cfgFlags <- flip execStateT initCfgFlags $ do
+          let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
 
-        cfgFlags <- case exists of
-                         False -> return cfgFlags'
-                         True -> do
-                             sandboxPackageDb <- getSandboxPackageDB sandboxConfig
-                             return $ cfgFlags'
-                                          { configPackageDBs = [Just sandboxPackageDb]
-                                          }
+          exists <- lift $ doesFileExist sandboxConfig
+          when (exists) $ do
+            sandboxPackageDb <- lift $ getSandboxPackageDB sandboxConfig
+            modify $ \x -> x { configPackageDBs = [Just sandboxPackageDb] }
+
+          let cmdUI = configureCommand programCfg
+          case commandParseArgs cmdUI True opts of
+            CommandReadyToGo (modFlags, _) -> modify modFlags
+            CommandErrors (e:_) -> error e
+            _ -> return ()
 
         localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
 
@@ -162,8 +170,8 @@ findCabalFile dir = do
 
 # else
 
-getPackageGhcOpts :: FilePath -> IO (Either String [String])
-getPackageGhcOpts _ = return $ Right []
+getPackageGhcOpts :: FilePath -> [String] -> IO (Either String [String])
+getPackageGhcOpts _ _ = return $ Right []
 
 findCabalFile :: FilePath -> IO (Maybe FilePath)
 findCabalFile _ = return Nothing

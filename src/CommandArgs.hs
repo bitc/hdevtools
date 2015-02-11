@@ -53,22 +53,26 @@ data HDevTools
     | Check
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , cabalOpts :: [String]
         , file :: String
         }
     | ModuleFile
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , cabalOpts :: [String]
         , module_ :: String
         }
     | Info
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , cabalOpts :: [String]
         , file :: String
         , identifier :: String
         }
     | Type
         { socket :: Maybe FilePath
         , ghcOpts :: [String]
+        , cabalOpts :: [String]
         , file :: String
         , line :: Int
         , col :: Int
@@ -88,6 +92,7 @@ dummyCheck :: HDevTools
 dummyCheck = Check
     { socket = Nothing
     , ghcOpts = []
+    , cabalOpts = []
     , file = ""
     }
 
@@ -95,6 +100,7 @@ dummyModuleFile :: HDevTools
 dummyModuleFile = ModuleFile
     { socket = Nothing
     , ghcOpts = []
+    , cabalOpts = []
     , module_ = ""
     }
 
@@ -102,6 +108,7 @@ dummyInfo :: HDevTools
 dummyInfo = Info
     { socket = Nothing
     , ghcOpts = []
+    , cabalOpts = []
     , file = ""
     , identifier = ""
     }
@@ -110,6 +117,7 @@ dummyType :: HDevTools
 dummyType = Type
     { socket = Nothing
     , ghcOpts = []
+    , cabalOpts = []
     , file = ""
     , line = 0
     , col = 0
@@ -128,6 +136,11 @@ check :: Annotate Ann
 check = record dummyCheck
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION"   += help "ghc options"
+#ifdef ENABLE_CABAL
+    , cabalOpts := def += typ "OPTION"  += help "cabal options"
+#else
+    , cabalOpts := def += ignore
+#endif
     , file     := def += typFile      += argPos 0 += opt ""
     ] += help "Check a haskell source file for errors and warnings"
 
@@ -135,6 +148,11 @@ moduleFile :: Annotate Ann
 moduleFile = record dummyModuleFile
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
+#ifdef ENABLE_CABAL
+    , cabalOpts := def += typ "OPTION"  += help "cabal options"
+#else
+    , cabalOpts := def += ignore
+#endif
     , module_  := def += typ "MODULE" += argPos 0
     ] += help "Get the haskell source file corresponding to a module name"
 
@@ -142,6 +160,11 @@ info :: Annotate Ann
 info = record dummyInfo
     [ socket     := def += typFile += help "socket file to use"
     , ghcOpts    := def += typ "OPTION" += help "ghc options"
+#ifdef ENABLE_CABAL
+    , cabalOpts := def += typ "OPTION"  += help "cabal options"
+#else
+    , cabalOpts := def += ignore
+#endif
     , file       := def += typFile      += argPos 0 += opt ""
     , identifier := def += typ "IDENTIFIER" += argPos 1
     ] += help "Get info from GHC about the specified identifier"
@@ -150,6 +173,11 @@ type_ :: Annotate Ann
 type_ = record dummyType
     [ socket   := def += typFile += help "socket file to use"
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
+#ifdef ENABLE_CABAL
+    , cabalOpts := def += typ "OPTION"  += help "cabal options"
+#else
+    , cabalOpts := def += ignore
+#endif
     , file     := def += typFile      += argPos 0 += opt ""
     , line     := def += typ "LINE"   += argPos 1
     , col      := def += typ "COLUMN" += argPos 2

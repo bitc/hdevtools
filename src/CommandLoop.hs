@@ -41,14 +41,16 @@ newCommandLoopState = do
 
 data CabalConfig = CabalConfig
     { cabalConfigPath :: FilePath
+    , cabalConfigOpts :: [String]
     , cabalConfigLastUpdatedAt :: EpochTime
     }
     deriving Eq
 
-mkCabalConfig :: FilePath -> IO CabalConfig
-mkCabalConfig path = do
+mkCabalConfig :: FilePath -> [String] -> IO CabalConfig
+mkCabalConfig path opts = do
     fileStatus <- getFileStatus path
     return $ CabalConfig { cabalConfigPath = path
+                         , cabalConfigOpts = opts
                          , cabalConfigLastUpdatedAt = modificationTime fileStatus
                          }
 
@@ -60,7 +62,7 @@ data Config = Config
 
 newConfig :: CommandExtra -> IO Config
 newConfig cmdExtra = do
-    mbCabalConfig <- traverse mkCabalConfig $ ceCabalConfig cmdExtra
+    mbCabalConfig <- traverse (\path -> mkCabalConfig path (ceCabalOptions cmdExtra)) $ ceCabalConfig cmdExtra
     return $ Config { configGhcOpts = ceGhcOptions cmdExtra
                     , configCabal = mbCabalConfig
                     }
@@ -132,7 +134,7 @@ configSession state clientSend config = do
                           return $ Right []
                       Just cabalConfig -> do
                           liftIO $ setCurrentDirectory . takeDirectory $ cabalConfigPath cabalConfig
-                          liftIO $ getPackageGhcOpts $ cabalConfigPath cabalConfig
+                          liftIO $ Cabal.getPackageGhcOpts (cabalConfigPath cabalConfig) (cabalConfigOpts cabalConfig)
 
     case eCabalGhcOpts of
       Left e -> return $ Left e

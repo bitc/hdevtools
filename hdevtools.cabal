@@ -67,6 +67,7 @@ executable hdevtools
                        syb,
                        network,
                        time,
+                       transformers,
                        unix
 
   if impl(ghc == 7.6.*)

@@ -11,11 +11,13 @@ import System.Exit (ExitCode)
 data CommandExtra = CommandExtra
   { ceGhcOptions :: [String]
   , ceCabalConfig :: Maybe FilePath
+  , ceCabalOptions :: [String]
   } deriving (Read, Show)
 
 emptyCommandExtra :: CommandExtra
 emptyCommandExtra = CommandExtra { ceGhcOptions = []
                                  , ceCabalConfig = Nothing
+                                 , ceCabalOptions = []
                                  }
 
 data ServerDirective
