@@ -164,7 +164,7 @@ findSymbol = record dummyFindSymbol
     , ghcOpts  := def += typ "OPTION" += help "ghc options"
     , symbol   := def += typ "SYMBOL" += argPos 0
     , files    := def += typFile += args
-    ] += help "Find the modules where the given symbol is defined"
+    ] += help "List the modules where the given symbol could be found"
 
 full :: String -> Annotate Ann
 full progName = modes_ [admin += auto, check, moduleFile, info, type_, findSymbol]
