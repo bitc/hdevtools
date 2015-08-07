@@ -7,6 +7,9 @@ module CommandLoop
 import Control.Monad (when)
 import Data.IORef
 import Data.List (find, intercalate)
+#if __GLASGOW_HASKELL__ < 709
+import Data.Traversable (traverse)
+#endif
 import MonadUtils (MonadIO, liftIO)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
 import qualified ErrUtils
@@ -183,7 +186,7 @@ runCommand state clientSend (CmdFindSymbol symbol files) = do
     where
     formatModules = intercalate "\n"
 
-    
+
 
 #if __GLASGOW_HASKELL__ >= 706
 logAction :: IORef State -> ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()

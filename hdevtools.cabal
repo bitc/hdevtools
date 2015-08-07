@@ -66,3 +66,5 @@ executable hdevtools
                        network,
                        time,
                        unix
+  if impl(ghc >= 7.9)
+    build-depends:     bin-package-db

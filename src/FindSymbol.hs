@@ -1,16 +1,22 @@
-{-# Language ScopedTypeVariables #-}
+{-# Language ScopedTypeVariables, CPP #-}
 
 module FindSymbol
     ( findSymbol
     ) where
 
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative ((<$>))
+import qualified UniqFM
+#else
+import GHC.PackageDb (exposedName)
+import GhcMonad (liftIO)
+#endif
+
 import Control.Monad (filterM)
 import Control.Exception
 import Data.List (find, nub)
 import Data.Maybe (catMaybes, isJust)
-import qualified GHC                    
-import qualified UniqFM
+import qualified GHC
 import qualified Packages as PKG
 import qualified Name
 import Exception (ghandle)
@@ -57,11 +63,25 @@ findSymbolInPackages symbol =
    where
    allExposedModules :: GHC.Ghc [GHC.Module]
    allExposedModules = do
-      modNames <- exposedModuleNames <$> GHC.getSessionDynFlags
+      modNames <- exposedModuleNames
       catMaybes <$> mapM findModule modNames
       where
-      exposedModuleNames = concatMap (\pkg -> if PKG.exposed pkg then PKG.exposedModules pkg else [])
-                           . UniqFM.eltsUFM . PKG.pkgIdMap . GHC.pkgState
+      exposedModuleNames :: GHC.Ghc [GHC.ModuleName]
+#if __GLASGOW_HASKELL__ < 710
+      exposedModuleNames =
+         concatMap exposedModules
+                   . UniqFM.eltsUFM
+		   . PKG.pkgIdMap
+		   . GHC.pkgState
+		   <$> GHC.getSessionDynFlags
+#else
+      exposedModuleNames = do
+         dynFlags <- GHC.getSessionDynFlags
+         pkgConfigs <- liftIO $ PKG.readPackageConfigs dynFlags
+         return $ map exposedName (concatMap exposedModules pkgConfigs)
+#endif
+
+      exposedModules pkg = if PKG.exposed pkg then PKG.exposedModules pkg else []
 
       findModule :: GHC.ModuleName -> GHC.Ghc (Maybe GHC.Module)
       findModule moduleName =
