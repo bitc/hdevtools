@@ -169,7 +169,14 @@ runCommand state clientSend (CmdType file (line, col)) = do
             , "\"", t, "\""
             ]
 
-#if __GLASGOW_HASKELL__ >= 706
+#if __GLASGOW_HASKELL__ >= 800
+logAction :: IORef State -> ClientSend -> GHC.DynFlags -> a -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
+logAction state clientSend dflags _ severity srcspan style msg =
+    let out = Outputable.renderWithStyle dflags fullMsg style
+        _ = severity
+    in logActionSend state clientSend severity out
+    where fullMsg = ErrUtils.mkLocMessage severity srcspan msg
+#elif __GLASGOW_HASKELL__ >= 706
 logAction :: IORef State -> ClientSend -> GHC.DynFlags -> GHC.Severity -> GHC.SrcSpan -> Outputable.PprStyle -> ErrUtils.MsgDoc -> IO ()
 logAction state clientSend dflags severity srcspan style msg =
     let out = Outputable.renderWithStyle dflags fullMsg style
