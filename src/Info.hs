@@ -191,7 +191,11 @@ pretty =
 #else
     . Outputable.withPprStyleDoc
 #endif
+#if __GLASGOW_HASKELL__ >= 802
+        (Outputable.mkUserStyle dflags Outputable.neverQualify Outputable.AllTheWay)
+#else
         (Outputable.mkUserStyle Outputable.neverQualify Outputable.AllTheWay)
+#endif
 #if __GLASGOW_HASKELL__ >= 708
     . PprTyThing.pprTypeForUser
 #else
