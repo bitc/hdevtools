@@ -10,8 +10,8 @@ import System.Exit (ExitCode(ExitSuccess))
 import System.IO (Handle, hClose, hFlush, hGetLine, hPutStrLn)
 import System.IO.Error (ioeGetErrorType, isDoesNotExistError)
 
-import CommandLoop (newCommandLoopState, startCommandLoop)
-import Types (ClientDirective(..), Command, ServerDirective(..))
+import CommandLoop (newCommandLoopState, Config, newConfig, startCommandLoop)
+import Types (ClientDirective(..), Command, emptyCommandExtra, ServerDirective(..))
 import Util (readMaybe)
 
 createListenSocket :: FilePath -> IO Socket
@@ -33,7 +33,8 @@ startServer socketPath mbSock = do
     go sock = do
         state <- newCommandLoopState
         currentClient <- newIORef Nothing
-        startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) [] Nothing
+        config <- newConfig emptyCommandExtra
+        startCommandLoop state (clientSend currentClient) (getNextCommand currentClient sock) config Nothing
 
     removeSocketFile :: IO ()
     removeSocketFile = do
@@ -48,13 +49,13 @@ clientSend currentClient clientDirective = do
         Just h -> ignoreEPipe $ do
             hPutStrLn h (show clientDirective)
             hFlush h
-        Nothing -> error "This is impossible"
+        Nothing -> return ()
     where
     -- EPIPE means that the client is no longer there.
     ignoreEPipe = handleJust (guard . isEPipe) (const $ return ())
     isEPipe = (==ResourceVanished) . ioeGetErrorType
 
-getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, [String]))
+getNextCommand :: IORef (Maybe Handle) -> Socket -> IO (Maybe (Command, Config))
 getNextCommand currentClient sock = do
     checkCurrent <- readIORef currentClient
     case checkCurrent of
@@ -69,8 +70,9 @@ getNextCommand currentClient sock = do
             clientSend currentClient $ ClientUnexpectedError $
                 "The client sent an invalid message to the server: " ++ show msg
             getNextCommand currentClient sock
-        Just (SrvCommand cmd ghcOpts) -> do
-            return $ Just (cmd, ghcOpts)
+        Just (SrvCommand cmd cmdExtra) -> do
+            config <- newConfig cmdExtra
+            return $ Just (cmd, config)
         Just SrvStatus -> do
             mapM_ (clientSend currentClient) $
                 [ ClientStdout "Server is running."

@@ -1,0 +1,179 @@
+{-# LANGUAGE CPP #-}
+module Cabal
+  ( getPackageGhcOpts
+  , findCabalFile
+  ) where
+
+#ifdef ENABLE_CABAL
+
+import Control.Exception (IOException, catch)
+import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (execStateT, modify)
+import Data.Char (isSpace)
+import Data.List (foldl', nub, sort, find, isPrefixOf, isSuffixOf)
+import Data.Monoid (Monoid(..))
+import Distribution.Package (PackageIdentifier(..), PackageName)
+import Distribution.PackageDescription (PackageDescription(..), Executable(..), TestSuite(..), Benchmark(..), emptyHookedBuildInfo)
+import Distribution.PackageDescription.Parse (readPackageDescription)
+import Distribution.Simple.Configure (configure)
+import Distribution.Simple.LocalBuildInfo (LocalBuildInfo(..), Component(..), ComponentName(..), componentBuildInfo, foldComponent)
+import Distribution.Simple.Compiler (PackageDB(..))
+import Distribution.Simple.Command (CommandParse(..), commandParseArgs)
+import Distribution.Simple.GHC (componentGhcOptions)
+import Distribution.Simple.Program (defaultProgramConfiguration)
+import Distribution.Simple.Program.Db (lookupProgram)
+import Distribution.Simple.Program.Types (ConfiguredProgram(programVersion), simpleProgram)
+import Distribution.Simple.Program.GHC (GhcOptions(..), renderGhcOptions)
+import Distribution.Simple.Setup (ConfigFlags(..), defaultConfigFlags, configureCommand, toFlag)
+import Distribution.Verbosity (silent)
+import Distribution.Version (Version(..))
+
+import System.IO.Error (ioeGetErrorString)
+import System.Directory (doesFileExist, getDirectoryContents)
+import System.FilePath (takeDirectory, splitFileName, (</>))
+
+#if MIN_VERSION_Cabal(1, 18, 0)
+import Distribution.Simple.LocalBuildInfo (pkgComponents, getComponentLocalBuildInfo)
+#else
+import Distribution.Simple.LocalBuildInfo (ComponentLocalBuildInfo(..), allComponentsBy)
+
+pkgComponents :: PackageDescription -> [Component]
+pkgComponents = flip allComponentsBy id
+
+
+getComponentLocalBuildInfo :: LocalBuildInfo -> ComponentName -> ComponentLocalBuildInfo
+getComponentLocalBuildInfo lbi CLibName =
+    case libraryConfig lbi of
+        Nothing -> error $ "internal error: missing library config"
+        Just clbi -> clbi
+getComponentLocalBuildInfo lbi (CExeName name) =
+    case lookup name (executableConfigs lbi) of
+        Nothing -> error $ "internal error: missing config for executable " ++ name
+        Just clbi -> clbi
+getComponentLocalBuildInfo lbi (CTestName name) =
+    case lookup name (testSuiteConfigs lbi) of
+        Nothing -> error $ "internal error: missing config for test suite " ++ name
+        Just clbi -> clbi
+getComponentLocalBuildInfo lbi (CBenchName name) =
+    case lookup name (testSuiteConfigs lbi) of
+        Nothing -> error $ "internal error: missing config for benchmark " ++ name
+        Just clbi -> clbi
+#endif
+
+
+componentName :: Component -> ComponentName
+componentName =
+    foldComponent (const CLibName)
+                  (CExeName . exeName)
+                  (CTestName . testName)
+                  (CBenchName . benchmarkName)
+
+
+getPackageGhcOpts :: FilePath -> [String] -> IO (Either String [String])
+getPackageGhcOpts path opts = do
+    getPackageGhcOpts' `catch` (\e -> do
+        return $ Left $ "Cabal error: " ++ (ioeGetErrorString (e :: IOException)))
+  where
+    getPackageGhcOpts' :: IO (Either String [String])
+    getPackageGhcOpts' = do
+        genPkgDescr <- readPackageDescription silent path
+
+        let programCfg = defaultProgramConfiguration
+        let initCfgFlags = (defaultConfigFlags programCfg)
+                             { configDistPref = toFlag $ takeDirectory path </> "dist"
+                             -- TODO: figure out how to find out this flag
+                             , configUserInstall = toFlag True
+                             }
+
+        cfgFlags <- flip execStateT initCfgFlags $ do
+          let sandboxConfig = takeDirectory path </> "cabal.sandbox.config"
+
+          exists <- lift $ doesFileExist sandboxConfig
+          when (exists) $ do
+            sandboxPackageDb <- lift $ getSandboxPackageDB sandboxConfig
+            modify $ \x -> x { configPackageDBs = [Just sandboxPackageDb] }
+
+          let cmdUI = configureCommand programCfg
+          case commandParseArgs cmdUI True opts of
+            CommandReadyToGo (modFlags, _) -> modify modFlags
+            CommandErrors (e:_) -> error e
+            _ -> return ()
+
+        localBuildInfo <- configure (genPkgDescr, emptyHookedBuildInfo) cfgFlags
+
+        let pkgDescr = localPkgDescr localBuildInfo
+        let baseDir = fst . splitFileName $ path
+        case getGhcVersion localBuildInfo of
+            Nothing -> return $ Left "GHC is not configured"
+            Just ghcVersion -> do
+                let mbLibName = pkgLibName pkgDescr
+
+                let ghcOpts' = foldl' mappend mempty $ map (getComponentGhcOptions localBuildInfo) $ pkgComponents . localPkgDescr $ localBuildInfo
+                    -- FIX bug in GhcOptions' `mappend`
+                    ghcOpts = ghcOpts' { ghcOptExtra = filter (/= "-Werror") $ nub $ ghcOptExtra ghcOpts'
+                                       , ghcOptPackageDBs = sort $ nub (ghcOptPackageDBs ghcOpts')
+                                       , ghcOptPackages = filter (\(_, pkgId) -> Just (pkgName pkgId) /= mbLibName) $ nub (ghcOptPackages ghcOpts')
+                                       , ghcOptSourcePath = map (baseDir </>) (ghcOptSourcePath ghcOpts')
+                                       }
+
+                return $ Right $ renderGhcOptions ghcVersion ghcOpts
+
+    pkgLibName :: PackageDescription -> Maybe PackageName
+    pkgLibName pkgDescr = if hasLibrary pkgDescr
+                          then Just $ pkgName . package $ pkgDescr
+                          else Nothing
+
+    hasLibrary :: PackageDescription -> Bool
+    hasLibrary = maybe False (\_ -> True) . library
+
+    getComponentGhcOptions :: LocalBuildInfo -> Component -> GhcOptions
+    getComponentGhcOptions lbi comp =
+        componentGhcOptions silent lbi bi clbi (buildDir lbi)
+
+      where bi   = componentBuildInfo comp
+            clbi = getComponentLocalBuildInfo lbi (componentName comp)
+
+    getGhcVersion :: LocalBuildInfo -> Maybe Version
+    getGhcVersion lbi = let db = withPrograms lbi
+                         in do ghc <- lookupProgram (simpleProgram "ghc") db
+                               programVersion ghc
+
+    getSandboxPackageDB :: FilePath -> IO PackageDB
+    getSandboxPackageDB sandboxPath = do
+        contents <- readFile sandboxPath
+        return $ SpecificPackageDB $ extractValue . parse $ contents
+      where
+        pkgDbKey = "package-db:"
+        parse = head . filter (pkgDbKey `isPrefixOf`) . lines
+        extractValue = fst . break isSpace . dropWhile isSpace . drop (length pkgDbKey)
+
+
+findCabalFile :: FilePath -> IO (Maybe FilePath)
+findCabalFile dir = do
+    allFiles <- getDirectoryContents dir
+    let mbCabalFile = find (isCabalFile) allFiles
+    case mbCabalFile of
+      Just cabalFile -> return $ Just $ dir </> cabalFile
+      Nothing ->
+        let parentDir = takeDirectory dir
+         in if parentDir == dir
+            then return Nothing
+            else findCabalFile parentDir
+
+  where
+
+    isCabalFile :: FilePath -> Bool
+    isCabalFile path = cabalExtension `isSuffixOf` path
+                    && length path > length cabalExtension
+        where cabalExtension = ".cabal"
+
+# else
+
+getPackageGhcOpts :: FilePath -> [String] -> IO (Either String [String])
+getPackageGhcOpts _ _ = return $ Right []
+
+findCabalFile :: FilePath -> IO (Maybe FilePath)
+findCabalFile _ = return Nothing
+
+#endif

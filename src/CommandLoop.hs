@@ -1,24 +1,31 @@
 {-# LANGUAGE CPP #-}
 module CommandLoop
     ( newCommandLoopState
+    , Config(..)
+    , CabalConfig(..)
+    , newConfig
     , startCommandLoop
     ) where
 
 import Control.Monad (when)
 import Data.IORef
 import Data.List (find)
+import Data.Traversable (traverse)
 import MonadUtils (MonadIO, liftIO)
+import System.Directory (setCurrentDirectory)
 import System.Exit (ExitCode(ExitFailure, ExitSuccess))
+import System.FilePath (takeDirectory)
 import qualified ErrUtils
 import qualified Exception (ExceptionMonad)
 import qualified GHC
 import qualified GHC.Paths
 import qualified Outputable
+import System.Posix.Types (EpochTime)
+import System.Posix.Files (getFileStatus, modificationTime)
 
-import Types (ClientDirective(..), Command(..))
+import Types (ClientDirective(..), Command(..), CommandExtra(..))
 import Info (getIdentifierInfo, getType)
-
-type CommandObj = (Command, [String])
+import Cabal (getPackageGhcOpts)
 
 type ClientSend = ClientDirective -> IO ()
 
@@ -32,6 +39,37 @@ newCommandLoopState = do
         { stateWarningsEnabled = True
         }
 
+data CabalConfig = CabalConfig
+    { cabalConfigPath :: FilePath
+    , cabalConfigOpts :: [String]
+    , cabalConfigLastUpdatedAt :: EpochTime
+    }
+    deriving Eq
+
+mkCabalConfig :: FilePath -> [String] -> IO CabalConfig
+mkCabalConfig path opts = do
+    fileStatus <- getFileStatus path
+    return $ CabalConfig { cabalConfigPath = path
+                         , cabalConfigOpts = opts
+                         , cabalConfigLastUpdatedAt = modificationTime fileStatus
+                         }
+
+data Config = Config
+    { configGhcOpts :: [String]
+    , configCabal :: Maybe CabalConfig
+    }
+    deriving Eq
+
+newConfig :: CommandExtra -> IO Config
+newConfig cmdExtra = do
+    mbCabalConfig <- traverse (\path -> mkCabalConfig path (ceCabalOptions cmdExtra)) $ ceCabalConfig cmdExtra
+    return $ Config { configGhcOpts = ceGhcOptions cmdExtra
+                    , configCabal = mbCabalConfig
+                    }
+
+
+type CommandObj = (Command, Config)
+
 withWarnings :: (MonadIO m, Exception.ExceptionMonad m) => IORef State -> Bool -> m a -> m a
 withWarnings state warningsValue action = do
     beforeState <- liftIO $ getWarnings
@@ -44,22 +82,26 @@ withWarnings state warningsValue action = do
     setWarnings :: Bool -> IO ()
     setWarnings val = modifyIORef state $ \s -> s { stateWarningsEnabled = val }
 
-startCommandLoop :: IORef State -> ClientSend -> IO (Maybe CommandObj) -> [String] -> Maybe Command -> IO ()
-startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
+startCommandLoop :: IORef State -> ClientSend -> IO (Maybe CommandObj) -> Config -> Maybe Command -> IO ()
+startCommandLoop state clientSend getNextCommand initialConfig mbInitialCommand = do
     continue <- GHC.runGhc (Just GHC.Paths.libdir) $ do
-        configOk <- GHC.gcatch (configSession state clientSend initialGhcOpts >> return True)
-            handleConfigError
-        if configOk
-            then do
-                doMaybe mbInitial $ \cmd -> sendErrors (runCommand state clientSend cmd)
-                processNextCommand False
-            else processNextCommand True
+        configResult <- configSession state clientSend initialConfig
+        case configResult of
+          Left e -> do
+              liftIO $ mapM_ clientSend
+                  [ ClientStderr e
+                  , ClientExit (ExitFailure 1)
+                  ]
+              processNextCommand True
+          Right _ -> do
+              doMaybe mbInitialCommand $ \cmd -> sendErrors (runCommand state clientSend cmd)
+              processNextCommand False
 
     case continue of
         Nothing ->
             -- Exit
             return ()
-        Just (cmd, ghcOpts) -> startCommandLoop state clientSend getNextCommand ghcOpts (Just cmd)
+        Just (cmd, config) -> startCommandLoop state clientSend getNextCommand config (Just cmd)
     where
     processNextCommand :: Bool -> GHC.Ghc (Maybe CommandObj)
     processNextCommand forceReconfig = do
@@ -68,37 +110,54 @@ startCommandLoop state clientSend getNextCommand initialGhcOpts mbInitial = do
             Nothing ->
                 -- Exit
                 return Nothing
-            Just (cmd, ghcOpts) ->
-                if forceReconfig || (ghcOpts /= initialGhcOpts)
-                    then return (Just (cmd, ghcOpts))
+            Just (cmd, config) ->
+                if forceReconfig || (config /= initialConfig)
+                    then return (Just (cmd, config))
                     else sendErrors (runCommand state clientSend cmd) >> processNextCommand False
 
     sendErrors :: GHC.Ghc () -> GHC.Ghc ()
-    sendErrors action = GHC.gcatch action (\x -> handleConfigError x >> return ())
-
-    handleConfigError :: GHC.GhcException -> GHC.Ghc Bool
-    handleConfigError e = do
+    sendErrors action = GHC.gcatch action $ \e -> do
         liftIO $ mapM_ clientSend
-            [ ClientStderr (GHC.showGhcException e "")
+            [ ClientStderr $ GHC.showGhcException e ""
             , ClientExit (ExitFailure 1)
             ]
-        return False
+        return ()
 
 doMaybe :: Monad m => Maybe a -> (a -> m ()) -> m ()
 doMaybe Nothing _ = return ()
 doMaybe (Just x) f = f x
 
-configSession :: IORef State -> ClientSend -> [String] -> GHC.Ghc ()
-configSession state clientSend ghcOpts = do
-    initialDynFlags <- GHC.getSessionDynFlags
-    let updatedDynFlags = initialDynFlags
-            { GHC.log_action = logAction state clientSend
-            , GHC.ghcLink = GHC.NoLink
-            , GHC.hscTarget = GHC.HscInterpreted
-            }
-    (finalDynFlags, _, _) <- GHC.parseDynamicFlags updatedDynFlags (map GHC.noLoc ghcOpts)
-    _ <- GHC.setSessionDynFlags finalDynFlags
-    return ()
+configSession :: IORef State -> ClientSend -> Config -> GHC.Ghc (Either String ())
+configSession state clientSend config = do
+    eCabalGhcOpts <- case configCabal config of
+                      Nothing ->
+                          return $ Right []
+                      Just cabalConfig -> do
+                          liftIO $ setCurrentDirectory . takeDirectory $ cabalConfigPath cabalConfig
+                          liftIO $ Cabal.getPackageGhcOpts (cabalConfigPath cabalConfig) (cabalConfigOpts cabalConfig)
+
+    case eCabalGhcOpts of
+      Left e -> return $ Left e
+      Right cabalGhcOpts -> do
+          let allGhcOpts = cabalGhcOpts ++ (configGhcOpts config)
+          GHC.gcatch (fmap Right $ updateDynFlags allGhcOpts)
+                     (fmap Left . handleGhcError)
+  where
+    updateDynFlags :: [String] -> GHC.Ghc ()
+    updateDynFlags ghcOpts = do
+        initialDynFlags <- GHC.getSessionDynFlags
+        let updatedDynFlags = initialDynFlags
+                { GHC.log_action = logAction state clientSend
+                , GHC.ghcLink = GHC.NoLink
+                , GHC.hscTarget = GHC.HscInterpreted
+                }
+        (finalDynFlags, _, _) <- GHC.parseDynamicFlags updatedDynFlags (map GHC.noLoc ghcOpts)
+        _ <- GHC.setSessionDynFlags finalDynFlags
+        return ()
+
+    handleGhcError :: GHC.GhcException -> GHC.Ghc String
+    handleGhcError e = return $ GHC.showGhcException e ""
+
 
 runCommand :: IORef State -> ClientSend -> Command -> GHC.Ghc ()
 runCommand _ clientSend (CmdCheck file) = do
