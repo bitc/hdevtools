@@ -51,6 +51,7 @@ executable hdevtools
                        CommandArgs,
                        CommandLoop,
                        Daemonize,
+                       GhcTypes,
                        Info,
                        Server,
                        Types,

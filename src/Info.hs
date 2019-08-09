@@ -29,6 +29,8 @@ import qualified PprTyThing
 import qualified Pretty
 import qualified TcHsSyn
 
+import GhcTypes (getModSummaries, TypecheckI)
+
 getIdentifierInfo :: FilePath -> String -> GHC.Ghc (Either String String)
 getIdentifierInfo file identifier =
     withModSummary file $ \m -> do
@@ -68,8 +70,8 @@ withModSummary file action = do
 
 getModuleSummary :: FilePath -> GHC.Ghc (Maybe GHC.ModSummary)
 getModuleSummary file = do
-    moduleGraph <- GHC.getModuleGraph
-    case find (moduleSummaryMatchesFilePath file) moduleGraph of
+    modSummaries <- getModSummaries
+    case find (moduleSummaryMatchesFilePath file) modSummaries of
         Nothing -> return Nothing
         Just moduleSummary -> return (Just moduleSummary)
 
@@ -92,9 +94,9 @@ moduleSummaryMatchesFilePath file moduleSummary =
 processTypeCheckedModule :: GHC.TypecheckedModule -> (Int, Int) -> GHC.Ghc [((Int, Int, Int, Int), String)]
 processTypeCheckedModule tcm (line, col) = do
     let tcs = GHC.tm_typechecked_source tcm
-        bs = listifySpans tcs (line, col) :: [GHC.LHsBind GHC.Id]
-        es = listifySpans tcs (line, col) :: [GHC.LHsExpr GHC.Id]
-        ps = listifySpans tcs (line, col) :: [GHC.LPat GHC.Id]
+        bs = listifySpans tcs (line, col) :: [GHC.LHsBind TypecheckI]
+        es = listifySpans tcs (line, col) :: [GHC.LHsExpr TypecheckI]
+        ps = listifySpans tcs (line, col) :: [GHC.LPat TypecheckI]
     bts <- mapM (getTypeLHsBind tcm) bs
     ets <- mapM (getTypeLHsExpr tcm) es
     pts <- mapM (getTypeLPat tcm) ps
@@ -130,7 +132,7 @@ getSrcSpan (GHC.RealSrcSpan spn) =
          , GHC.srcSpanEndCol spn)
 getSrcSpan _ = Nothing
 
-getTypeLHsBind :: GHC.TypecheckedModule -> GHC.LHsBind GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
+getTypeLHsBind :: GHC.TypecheckedModule -> GHC.LHsBind TypecheckI -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
 #if __GLASGOW_HASKELL__ >= 708
 getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = grp}) = return $ Just (spn, HsExpr.mg_res_ty grp)
 #else
@@ -138,7 +140,7 @@ getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = GHC.MatchGroup _ typ})
 #endif
 getTypeLHsBind _ _ = return Nothing
 
-getTypeLHsExpr :: GHC.TypecheckedModule -> GHC.LHsExpr GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
+getTypeLHsExpr :: GHC.TypecheckedModule -> GHC.LHsExpr TypecheckI -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
 #if __GLASGOW_HASKELL__ >= 708
 getTypeLHsExpr _ e = do
 #else
@@ -158,7 +160,7 @@ getTypeLHsExpr tcm e = do
         Nothing -> return Nothing
         Just expr -> return $ Just (GHC.getLoc e, CoreUtils.exprType expr)
 
-getTypeLPat :: GHC.TypecheckedModule -> GHC.LPat GHC.Id -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
+getTypeLPat :: GHC.TypecheckedModule -> GHC.LPat TypecheckI -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
 getTypeLPat _ (GHC.L spn pat) = return $ Just (spn, TcHsSyn.hsPatType pat)
 
 listifySpans :: Typeable a => GHC.TypecheckedSource -> (Int, Int) -> [GHC.Located a]
@@ -221,7 +223,7 @@ everythingStaged stage k z f x
   | otherwise = foldl k (f x) (gmapQ (everythingStaged stage k z f) x)
   where nameSet    = const (stage `elem` [Parser,TypeChecker]) :: NameSet.NameSet -> Bool
 #if __GLASGOW_HASKELL__ >= 710
-        postTcType = const (stage<TypeChecker)                 :: GHC.PostTc GHC.Id GHC.Type -> Bool
+        postTcType = const (stage<TypeChecker)                 :: GHC.PostTc TypecheckI GHC.Type -> Bool
 #else
         postTcType = const (stage<TypeChecker)                 :: GHC.PostTcType -> Bool
 #endif
@@ -234,7 +236,10 @@ everythingStaged stage k z f x
 infoThing :: String -> GHC.Ghc String
 infoThing str = do
     names <- GHC.parseName str
-#if __GLASGOW_HASKELL__ >= 708
+#if __GLASGOW_HASKELL__ >= 804
+    mb_stuffs <- mapM (GHC.getInfo False) names
+    let filtered = filterOutChildren (\(t,_f,_i,_,_) -> t) (catMaybes mb_stuffs)
+#elif __GLASGOW_HASKELL__ >= 708
     mb_stuffs <- mapM (GHC.getInfo False) names
     let filtered = filterOutChildren (\(t,_f,_i,_) -> t) (catMaybes mb_stuffs)
 #else
@@ -270,7 +275,11 @@ filterOutChildren get_thing xs
                      Just p  -> GHC.getName p `NameSet.elemNameSet` all_names
                      Nothing -> False
 
-#if __GLASGOW_HASKELL__ >= 708
+#if __GLASGOW_HASKELL__ >= 804
+pprInfo :: (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst], [GHC.FamInst], Outputable.SDoc) -> Outputable.SDoc
+pprInfo (thing, fixity, insts, _, _) =
+    PprTyThing.pprTyThingInContextLoc thing
+#elif __GLASGOW_HASKELL__ >= 708
 pprInfo :: (HscTypes.TyThing, GHC.Fixity, [GHC.ClsInst], [GHC.FamInst]) -> Outputable.SDoc
 pprInfo (thing, fixity, insts, _) =
     PprTyThing.pprTyThingInContextLoc thing

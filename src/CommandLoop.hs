@@ -16,6 +16,7 @@ import qualified GHC.Paths
 import qualified Outputable
 
 import Types (ClientDirective(..), Command(..))
+import GhcTypes (getModSummaries)
 import Info (getIdentifierInfo, getType)
 
 type CommandObj = (Command, [String])
@@ -111,8 +112,8 @@ runCommand _ clientSend (CmdCheck file) = do
         GHC.Succeeded -> clientSend (ClientExit ExitSuccess)
         GHC.Failed -> clientSend (ClientExit (ExitFailure 1))
 runCommand _ clientSend (CmdModuleFile moduleName) = do
-    moduleGraph <- GHC.getModuleGraph
-    case find (moduleSummaryMatchesModuleName moduleName) moduleGraph of
+    modSummaries <- getModSummaries
+    case find (moduleSummaryMatchesModuleName moduleName) modSummaries of
         Nothing ->
             liftIO $ mapM_ clientSend
                 [ ClientStderr "Module not found"
