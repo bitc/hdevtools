@@ -63,6 +63,6 @@ executable hdevtools
                        ghc >= 7.2,
                        ghc-paths,
                        syb,
-                       network,
+                       network == 2.8.0.1,
                        time,
                        unix
