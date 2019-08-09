@@ -52,7 +52,6 @@ executable hdevtools
                        CommandLoop,
                        Daemonize,
                        Info,
-                       Main,
                        Server,
                        Types,
                        Util,
