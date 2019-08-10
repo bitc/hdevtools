@@ -133,7 +133,9 @@ getSrcSpan (GHC.RealSrcSpan spn) =
 getSrcSpan _ = Nothing
 
 getTypeLHsBind :: GHC.TypecheckedModule -> GHC.LHsBind TypecheckI -> GHC.Ghc (Maybe (GHC.SrcSpan, GHC.Type))
-#if __GLASGOW_HASKELL__ >= 708
+#if __GLASGOW_HASKELL__ >= 806
+getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = grp}) = return $ Just (spn, HsExpr.mg_res_ty $ HsExpr.mg_ext grp)
+#elif __GLASGOW_HASKELL__ >= 708
 getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = grp}) = return $ Just (spn, HsExpr.mg_res_ty grp)
 #else
 getTypeLHsBind _ (GHC.L spn GHC.FunBind{GHC.fun_matches = GHC.MatchGroup _ typ}) = return $ Just (spn, typ)
@@ -219,10 +221,15 @@ data Stage = Parser | Renamer | TypeChecker deriving (Eq,Ord,Show)
 --   generated the Ast.
 everythingStaged :: Stage -> (r -> r -> r) -> r -> GenericQ r -> GenericQ r
 everythingStaged stage k z f x
-  | (const False `extQ` postTcType `extQ` fixity `extQ` nameSet) x = z
+  | (const False `extQ`
+#if __GLASGOW_HASKELL__ < 806
+        postTcType `extQ`
+#endif
+        fixity `extQ` nameSet) x = z
   | otherwise = foldl k (f x) (gmapQ (everythingStaged stage k z f) x)
   where nameSet    = const (stage `elem` [Parser,TypeChecker]) :: NameSet.NameSet -> Bool
-#if __GLASGOW_HASKELL__ >= 710
+#if __GLASGOW_HASKELL__ >= 806
+#elif __GLASGOW_HASKELL__ >= 710
         postTcType = const (stage<TypeChecker)                 :: GHC.PostTc TypecheckI GHC.Type -> Bool
 #else
         postTcType = const (stage<TypeChecker)                 :: GHC.PostTcType -> Bool
